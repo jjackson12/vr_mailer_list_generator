@@ -15,7 +15,7 @@ def query_NCOA_data(input_data, test=False):
         return filtered_sample_output_data
     else:
         # TODO: Implement actual NCOA query logic here
-        return pd.DataFrame()
+        return None
 
 
 # Initialize BigQuery client
@@ -73,40 +73,33 @@ print(f"Input data saved to {csv_filename}")
 ncoa_response = query_NCOA_data(input_df, test=True)
 
 # TODO: Upload response to a google cloud bucket instead of locally
-response_csv_filename = f"job_request_response_id_{job_id}.csv"
-ncoa_response.to_csv(response_csv_filename, index=False)
-print(f"Response data saved to {response_csv_filename}")
+ncoa_response_csv_filename = f"job_request_response_id_{job_id}.csv"
+ncoa_response.to_csv(ncoa_response_csv_filename, index=False)
+print(f"NCOA response data saved to {ncoa_response_csv_filename}")
 
 # Update the BigQuery table with the response data
 table_id = "vr-mail-generator.vr_data.ncoa_address_statuses"
+
+ncoa_response.rename(
+    columns={
+        "record_id": "vr_program_id",
+        "first_name": "first_name",
+        "last_name": "last_name",
+        "address_line_1": "address_line_1",
+        "city_name": "address_city",
+        "state_code": "address_state",
+        "postal_code": "address_zipcode",
+        "address_status": "ncoa_status",
+    },
+    inplace=True,
+)
 
 # Create a temporary table in BigQuery to store the response data
 temp_table_id = f"{table_id}_temp"
 job_config = bigquery.LoadJobConfig(
     write_disposition="WRITE_TRUNCATE",
-    schema=[
-        bigquery.SchemaField("vr_program_id", "STRING"),
-        bigquery.SchemaField("address_line_1", "STRING"),
-        bigquery.SchemaField("address_city", "STRING"),
-        bigquery.SchemaField("address_zipcode", "STRING"),
-        bigquery.SchemaField("address_state", "STRING"),
-        bigquery.SchemaField("first_name", "STRING"),
-        bigquery.SchemaField("last_name", "STRING"),
-        bigquery.SchemaField("ncoa_status", "STRING"),
-    ],
+    autodetect=True,  # <-- let BQ infer from df
 )
-
-ncoa_response.rename(
-    columns={
-        "record_id": "vr_program_id",
-        "address_line_1": "city_name",
-        "address_zipcode": "postal_code",
-        "address_state": "state_code",
-    },
-    inplace=True,
-)
-
-
 client.load_table_from_dataframe(
     ncoa_response, temp_table_id, job_config=job_config
 ).result()

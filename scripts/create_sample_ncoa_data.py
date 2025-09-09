@@ -1,7 +1,8 @@
 import pandas as pd
+import random
 
 # Define the path to the CSV file
-input_file_path = "../job_request_input_id_6ee13e57-6639-4eb8-8e14-6c1295ba9e03.csv"
+input_file_path = "/Users/jacobjackson/Dev/2025_projects/vr_mail_list_generator/job_request_input_id_6ee13e57-6639-4eb8-8e14-6c1295ba9e03.csv"
 
 # Read the CSV file into a DataFrame
 data = pd.read_csv(input_file_path)
@@ -9,8 +10,9 @@ data = pd.read_csv(input_file_path)
 # Display the first few rows of the DataFrame
 print(data.head())
 
-sample_output_data = [
-    {
+
+def apply_status(row):
+    row_response = {
         "record_id": row.individual_id,
         "first_name": row.individual_first_name,
         "last_name": row.individual_last_name,
@@ -26,6 +28,7 @@ sample_output_data = [
         ),
         "street_suffix": "",
         "city_name": row.address_city_name,
+        "state_code": row.address_state_code,
         "postal_code": row.address_postal_code,
         "address_status": "TODO",
         "vacant": "TODO",
@@ -42,8 +45,19 @@ sample_output_data = [
         "household_id": "TODO",
         "individual_id": "TODO",
     }
-    for row in data.iterrows()
-]
+
+    prob = random.random()
+    if prob < 0.7:
+        row_response["record_type"] = "A"
+    elif prob < 0.9:
+        row_response["record_type"] = "C"
+    else:
+        row_response["record_type"] = "H"
+
+    return row_response
+
+
+sample_output_data = [apply_status(row[1]) for row in data.iterrows()]
 
 sample_output_df = pd.DataFrame(sample_output_data)
 print(sample_output_df.head())

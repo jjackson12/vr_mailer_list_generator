@@ -88,12 +88,13 @@ class VRMailListGenerator:
 
     def create_control_group(
         self, df: pd.DataFrame, size: int = None, stratify: List[str] = None
-    ) -> pd.DataFrame:
-        """Create a random or stratified control group."""
+    ):
+        """Create a random or stratified control group and return both control and treatment groups."""
+        # TODO: Test stratification. Also consider when we'd want to oversample on subgroups, but this would require adjusting the end result analysis as well, so that's a more complex workflow I don't want to try to account for in this yet
         if stratify:
             logger.info(f"Creating stratified control group on {stratify}")
             # Stratified sampling (naive)
-            return df.groupby(stratify, group_keys=False).apply(
+            control_group = df.groupby(stratify, group_keys=False).apply(
                 lambda x: x.sample(frac=0.1)
             )
         else:
@@ -104,9 +105,15 @@ class VRMailListGenerator:
             )
             # Truly random sample (10% default)
             frac = 0.1 if size is None else min(size / len(df), 1)
-            result = df.sample(frac=frac)
-            logger.info(f"Control group rows={len(result)} (source rows={len(df)})")
-            return result
+            control_group = df.sample(frac=frac)
+
+        logger.info(f"Control group rows={len(control_group)} (source rows={len(df)})")
+
+        # Treatment group is the complement of the control group
+        treatment_group = df.drop(control_group.index)
+        logger.info(f"Treatment group rows={len(treatment_group)}")
+
+        return control_group, treatment_group
 
     def upload_to_gcs(self, file_path: str, bucket_name: str, dest_blob_name: str):
         """Upload file to Google Cloud Storage bucket."""
@@ -154,42 +161,31 @@ class VRMailListGenerator:
             counter += 1
 
     # --- Main Logic ---
-    def main(
+    def generate_rct_mailing_list(
         self,
-        params: Dict[str, Any],
+        list_df: pd.DataFrame,
         requestor_email: str,
         requestor_name: str,
         request_name: str,
+        params=None,
     ):
-        logger.info("Request started")
-        logger.debug(f"Params received: {params}")
+        logger.info(f"Request started for list size {len(list_df)}")
+        if params:
+            logger.info(f"Request parameters: {params}")
         # Mapping raw file columns -> friendly names used in params
         # Filter by registration address fields
-        filtered = self.filter_voters(params)
 
-        filtered["Name"] = (
-            filtered["first_name"].str.strip() + " " + filtered["last_name"].str.strip()
+        list_df["Name"] = (
+            list_df["first_name"].str.strip() + " " + list_df["last_name"].str.strip()
         )
-        filtered["MailingAddress"] = (
-            filtered["mail_addr1"].str.strip()
+        list_df["MailingAddress"] = (
+            list_df["mail_addr1"].str.strip()
             + " "
-            + filtered["mail_addr2"].fillna("").str.strip()
+            + list_df["mail_addr2"].fillna("").str.strip()
         )
-        filtered["MailingCity"] = filtered["mail_city"].str.strip()
-        filtered["MailingState"] = filtered["mail_state"].str.strip()
-        filtered["MailingZip"] = filtered["mail_zipcode"].astype(str).str.strip()
-
-        # Get mailing addresses for output
-        mailing_list = filtered[
-            ["Name", "MailingAddress", "MailingCity", "MailingState", "MailingZip"]
-        ]
-        logger.info(f"Mailing (treatment) rows={len(mailing_list)}")
-        # Create control group
-        control_group = self.create_control_group(filtered)
-        control_mailing = control_group[
-            ["Name", "MailingAddress", "MailingCity", "MailingState", "MailingZip"]
-        ]
-        logger.info(f"Control mailing rows={len(control_mailing)}")
+        list_df["MailingCity"] = list_df["mail_city"].str.strip()
+        list_df["MailingState"] = list_df["mail_state"].str.strip()
+        list_df["MailingZip"] = list_df["mail_zipcode"].astype(str).str.strip()
 
         # New: derive unique cleaned request name
         cleaned_base = self.clean_request_name(request_name)
@@ -201,26 +197,69 @@ class VRMailListGenerator:
         logger.info(f"Resolved unique request name='{unique_name}'")
         gcs_base_path = f"lists/{unique_name}"
 
-        # Local filenames include unique name
-        treatment_local = f"{unique_name}/treatment_list.csv"
-        control_local = f"{unique_name}/control_list.csv"
-        logger.debug(f"Local output paths: {treatment_local}, {control_local}")
+        # Get mailing addresses for output
+        list_df = list_df[
+            ["Name", "MailingAddress", "MailingCity", "MailingState", "MailingZip"]
+        ]
+        logger.info(f"Total target group rows={len(list_df)}")
+        # Create control group
+        control_group, treatment_group = self.create_control_group(list_df)
+        logger.info(f"Control mailing rows={len(control_group)}")
+        logger.info(f"Treatment mailing rows={len(treatment_group)}")
 
-        # Save output
-        mailing_list.to_csv(treatment_local.replace("/", "__"), index=False)
-        control_mailing.to_csv(control_local.replace("/", "__"), index=False)
-        logger.info("CSV files written locally")
+        # Save PEOPLE lists (ungrouped)
+        treatment_people_local = f"{unique_name}/treatment_group.csv"
+        control_people_local = f"{unique_name}/control_group.csv"
+        treatment_group.to_csv(treatment_people_local.replace("/", "__"), index=False)
+        control_group.to_csv(control_people_local.replace("/", "__"), index=False)
+        logger.info("PEOPLE CSV files written locally")
 
-        # Upload to GCS using required structure:
-        # lists/<cleaned_list_name>/treatment_list.csv
-        # lists/<cleaned_list_name>/control_list.csv
-        bucket.blob(f"{gcs_base_path}/treatment_list.csv").upload_from_filename(
-            treatment_local.replace("/", "__")
+        # Group treatment list by household
+        grouped_treatment_mailing = (
+            treatment_group.groupby(
+                ["MailingAddress", "MailingCity", "MailingState", "MailingZip"]
+            )
+            .agg({"Name": lambda x: "Household of " + " and ".join(x)})
+            .reset_index()
         )
-        bucket.blob(f"{gcs_base_path}/control_list.csv").upload_from_filename(
-            control_local.replace("/", "__")
+
+        # Group control list by household
+        grouped_control_mailing = (
+            control_group.groupby(
+                ["MailingAddress", "MailingCity", "MailingState", "MailingZip"]
+            )
+            .agg({"Name": lambda x: "Household of " + " and ".join(x)})
+            .reset_index()
         )
-        logger.info("Uploads to GCS complete")
+
+        # Save grouped MAILING lists
+        treatment_mailing_local = f"{unique_name}/treatment_mailing_list.csv"
+        control_mailing_local = f"{unique_name}/control_mailing_list.csv"
+        grouped_treatment_mailing.to_csv(
+            treatment_mailing_local.replace("/", "__"), index=False
+        )
+        grouped_control_mailing.to_csv(
+            control_mailing_local.replace("/", "__"), index=False
+        )
+        logger.info("MAILING CSV files written locally")
+
+        # Upload PEOPLE lists to GCS
+        bucket.blob(f"{gcs_base_path}/treatment_group.csv").upload_from_filename(
+            treatment_people_local.replace("/", "__")
+        )
+        bucket.blob(f"{gcs_base_path}/control_group.csv").upload_from_filename(
+            control_people_local.replace("/", "__")
+        )
+        logger.info("PEOPLE uploads to GCS complete")
+
+        # Upload grouped MAILING lists to GCS
+        bucket.blob(f"{gcs_base_path}/treatment_mailing_list.csv").upload_from_filename(
+            treatment_mailing_local.replace("/", "__")
+        )
+        bucket.blob(f"{gcs_base_path}/control_mailing_list.csv").upload_from_filename(
+            control_mailing_local.replace("/", "__")
+        )
+        logger.info("MAILING uploads to GCS complete")
 
         original_name = request_name
         final_name = unique_name
@@ -238,10 +277,12 @@ class VRMailListGenerator:
         self.send_email(
             subject=f"Mailer List Ready: {final_name}",
             body=(
-                f"Hi {requestor_name}, your mailing list (request: '{original_name}') is ready.\n"
+                f"Hi {requestor_name}, your mailing list (request: '{original_name}') is ready. \n"
                 f"GCS paths:\n"
-                f" - gs://{BUCKET_NAME}/{gcs_base_path}/treatment_list.csv\n"
-                f" - gs://{BUCKET_NAME}/{gcs_base_path}/control_list.csv"
+                f" - gs://{BUCKET_NAME}/{gcs_base_path}/treatment_group.csv\n"
+                f" - gs://{BUCKET_NAME}/{gcs_base_path}/control_group.csv\n"
+                f" - gs://{BUCKET_NAME}/{gcs_base_path}/treatment_mailing_list.csv\n"
+                f" - gs://{BUCKET_NAME}/{gcs_base_path}/control_mailing_list.csv"
             ),
             to_emails=[requestor_email, REVIEWER_EMAIL],
         )
@@ -253,13 +294,14 @@ if __name__ == "__main__":
     # Example usage
     params = {
         "Party": "DEM",
-        "Age": [25, 26, 27, 28, 29, 30],
+        "Age": [18, 49],
         "Gender": "F",
     }
     generator = VRMailListGenerator()
-    generator.main(
-        params,
+    target_voters = generator.filter_voters(params)
+    generator.generate_rct_mailing_list(
+        list_df=target_voters,
         requestor_email="user@example.com",
         requestor_name="Jane Doe",
-        request_name="Spring Outreach Test",
+        request_name="Test Request: Female Dems Under 50",
     )

@@ -17,7 +17,8 @@ except Exception as _e:
     storage = None  # We'll show a friendly error if missing
 
 # =============== Config ===============
-st.set_page_config(page_title="Voter List Builder", layout="wide")
+# TODO: Could make the RCT part optional
+st.set_page_config(page_title="Mailer RCT list generator", layout="wide")
 
 # Bucket spec like "vr_mail_lists/lists" or "gs://vr_mail_lists/lists"
 GCS_BUCKET_SPEC = "vr_mail_lists/lists"  # bucket "vr_mail_lists", prefix "lists/"
@@ -25,17 +26,13 @@ GCS_BUCKET_SPEC = "vr_mail_lists/lists"  # bucket "vr_mail_lists", prefix "lists
 # =============== Helper functions ===============
 
 
-def parse_bucket_spec(spec: str) -> Tuple[str, str]:
-    """Split a 'bucket/prefix' or 'gs://bucket/prefix' into (bucket, 'prefix/')."""
+def parse_bucket_spec(spec: str) -> str:
+    """Split a 'bucket/prefix' or 'gs://bucket/prefix' into (bucket, 'prefix/').
+    Extract the last directory name if the prefix ends with '/*.csv'."""
     s = spec.replace("gs://", "").strip().lstrip("/")
-    parts = s.split("/", 1)
-    bucket = parts[0]
-    prefix = ""
-    if len(parts) > 1:
-        prefix = parts[1]
-    if prefix and not prefix.endswith("/"):
-        prefix += "/"
-    return bucket, prefix
+    parts = s.split("/")
+    name = parts[2]
+    return name
 
 
 def get_gcs_client() -> storage.Client:
@@ -60,33 +57,32 @@ def get_gcs_client() -> storage.Client:
 
 @st.cache_data(show_spinner=False, ttl=120)
 def load_past_lists_gcs(spec: str) -> pd.DataFrame:
-    """List objects in gs://<bucket>/<prefix> and return list_name + created_at + gs_uri."""
-    bucket_name, prefix = parse_bucket_spec(spec)
+    """List objects in gs://<bucket>/<prefix> and return list_name + created_at."""
     client = get_gcs_client()
     rows = []
-    # Prefer client.list_blobs for speed over bucket.list_blobs(binding)
-    for blob in client.list_blobs(bucket_name, prefix=prefix):
+    lists_data = {}
+    for blob in client.list_blobs("vr_mail_lists"):
         # Skip "directory placeholders"
         if blob.name.endswith("/"):
             continue
         # list_name is the filename stem
-        list_name = Path(blob.name).stem
-        created = blob.time_created or blob.updated  # use time_created when available
-        # Normalize to string
-        created_fmt = (
-            created.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-            if created
-            else ""
+        list_name = blob.name.strip().split("/")[-2]
+        lists_data[list_name] = min(
+            lists_data.get(list_name, blob.time_created or blob.updated),
+            blob.time_created,
+            blob.updated,
         )
-        rows.append(
+    list_df = pd.DataFrame(
+        [
             {
-                "list_name": list_name,
-                "created_at": created_fmt,
-                "gs_uri": f"gs://{bucket_name}/{blob.name}",
+                "list_name": l,
+                "created_at": c.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
             }
-        )
-    df = pd.DataFrame(rows).sort_values("created_at", ascending=False)
-    return df
+            for l, c in lists_data.items()
+        ]
+    ).sort_values("created_at", ascending=False)
+
+    return list_df
 
 
 def parse_csv_list(value: str) -> List[str]:
@@ -201,7 +197,7 @@ with st.expander("Past lists (from GCS)", expanded=True):
             st.info("No lists found yet in gs://vr_mail_lists/lists/.")
         else:
             st.dataframe(
-                past_df[["list_name", "created_at", "gs_uri"]],
+                past_df[["list_name", "created_at"]],
                 use_container_width=True,
                 hide_index=True,
             )

@@ -25,7 +25,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # CONFIG
-DATA_PATH = "scripts/nc_vf_partial.csv"
 BUCKET_NAME = "vr_mail_lists"
 REVIEWER_EMAIL = "jake.j3.jackson@gmail.com"
 BUCKETS_SERVICE_ACCOUNT_KEY = "vr-mail-generator-56bee8a8278b.json"

@@ -3,3 +3,4 @@ venv
 .vscode
 *.json
 *.pyc
+.DS_Store

@@ -63,15 +63,6 @@ class VRMailListGenerator:
         special_queries = {
             "Age": lambda x: f" AND age_at_year_end BETWEEN {min(x)} AND {max(x)}"
         }
-        # TODO: This logic needs to find its way back at the end of the generator step
-        # df["Name"] = df["first_name"].str.strip() + " " + df["last_name"].str.strip()
-        # df["MailingAddress"] = (
-        #     df["mail_addr1"].str.strip() + " " + df["mail_addr2"].fillna("").str.strip()
-        # )
-        # df["MailingCity"] = df["mail_city"].str.strip()
-        # df["MailingState"] = df["mail_state"].str.strip()
-        # df["MailingZip"] = df["mail_zipcode"].astype(str).str.strip()
-
         # Add filters dynamically based on params
         for key, value in params.items():
             if value is not None:
@@ -132,7 +123,7 @@ class VRMailListGenerator:
         msg["Subject"] = subject
         msg["From"] = "mailer@example.com"
         msg["To"] = ", ".join(to_emails)
-        logger.info(f"Queued email: subject='{subject}' to={to_emails}")
+        logger.info(f"Queued email: subject='{subject}' to={to_emails} body={body}")
         # TODO: SMTP config here
         # with smtplib.SMTP('smtp.example.com') as server:
         #     server.login('user', 'pass')
@@ -175,6 +166,19 @@ class VRMailListGenerator:
         # Mapping raw file columns -> friendly names used in params
         # Filter by registration address fields
         filtered = self.filter_voters(params)
+
+        filtered["Name"] = (
+            filtered["first_name"].str.strip() + " " + filtered["last_name"].str.strip()
+        )
+        filtered["MailingAddress"] = (
+            filtered["mail_addr1"].str.strip()
+            + " "
+            + filtered["mail_addr2"].fillna("").str.strip()
+        )
+        filtered["MailingCity"] = filtered["mail_city"].str.strip()
+        filtered["MailingState"] = filtered["mail_state"].str.strip()
+        filtered["MailingZip"] = filtered["mail_zipcode"].astype(str).str.strip()
+
         # Get mailing addresses for output
         mailing_list = filtered[
             ["Name", "MailingAddress", "MailingCity", "MailingState", "MailingZip"]

@@ -10,6 +10,8 @@ import numpy as np
 import streamlit as st
 from config import BUCKETS_SERVICE_ACCOUNT_KEY
 
+from vr_list_generator import VRMailListGenerator
+
 # GCS
 try:
     from google.cloud import storage
@@ -106,55 +108,9 @@ def ensure_list_name_safe(name: str) -> str:
     return safe[:120] if safe else ""
 
 
-# ---- Replace this with your real data filter ----
 def filter_voters(params: Dict[str, Any]) -> pd.DataFrame:
-    """
-    DEMO stub: returns a fake voter dataframe.
-    Must return columns:
-      - age (int)
-      - mail_addr1, mail_addr2, mail_city, mail_state, mail_zipcode
-    """
-    rng = np.random.default_rng(42)
-    n = rng.integers(500, 5000)
-
-    ages = rng.integers(
-        params["age_min"], max(params["age_max"], params["age_min"] + 1), size=n
-    )
-
-    streets = rng.choice([f"{num} Main St" for num in range(10, 999)], size=n)
-    addr2s = rng.choice(["", "Apt 1", "Apt 2", "Unit B", ""], size=n)
-    cities = rng.choice(
-        ["Denver", "Boulder", "Aurora", "Fort Collins", "Pueblo"], size=n
-    )
-    states = rng.choice(["CO"], size=n)
-    zips = rng.choice(["80202", "80301", "80012", "80521", "81003"], size=n)
-
-    df = pd.DataFrame(
-        {
-            "age": ages,
-            "mail_addr1": streets,
-            "mail_addr2": addr2s,
-            "mail_city": cities,
-            "mail_state": states,
-            "mail_zipcode": zips,
-            # Echo back some params (likely codes after mapping)
-            "county": rng.choice(params.get("county") or ["DEN"], size=n),
-            "party": rng.choice(params.get("party") or ["D", "R", "U"], size=n),
-            "race": rng.choice(params.get("race") or ["W", "B", "A", "O", "U"], size=n),
-            "ethnicity": rng.choice(params.get("ethnicity") or ["H", "N", "U"], size=n),
-            "gender": rng.choice(params.get("gender") or ["M", "F", "X", "U"], size=n),
-            "state_house": rng.choice(
-                params.get("state_house") or list(range(1, 66)), size=n
-            ),
-            "state_senate": rng.choice(
-                params.get("state_senate") or list(range(1, 36)), size=n
-            ),
-            "congressional": rng.choice(
-                params.get("congressional") or list(range(1, 9)), size=n
-            ),
-        }
-    )
-    return df
+    list_generator = VRMailListGenerator()
+    return list_generator.filter_voters(params)
 
 
 # =============== Auth gate (name + email) ===============
@@ -223,7 +179,7 @@ c1, c2 = st.columns([3, 2], gap="large")
 with c1:
     county_csv = st.text_input(
         "County (comma-separated)",
-        placeholder="e.g., Denver, Boulder, Arapahoe",
+        placeholder="e.g. Yadkin, Mecklenburg",
         help="Type one or more counties, separated by commas.",
     )
     party = st.multiselect(
@@ -259,13 +215,12 @@ with c2:
 
 # Human-readable params (kept as-is for downstream request payloads)
 params: Dict[str, Any] = {
-    "county": parse_csv_list(county_csv),
-    "party": party,
-    "race": race,
-    "ethnicity": ethnicity,
-    "gender": gender,
-    "age_min": int(age_min),
-    "age_max": int(age_max),
+    "County": parse_csv_list(county_csv),
+    "Party": party,
+    "Race": race,
+    "Ethnicity": ethnicity,
+    "Gender": gender,
+    "Age": [age_min, age_max],
     "state_house": state_house,
     "state_senate": state_senate,
     "congressional": congressional,
@@ -293,18 +248,20 @@ def map_county_names_to_codes(counties: List[str]) -> List[str]:
     return [c.strip().upper() for c in counties]
 
 
-params_codes: Dict[str, Any] = {
-    "county": map_county_names_to_codes(params["county"]),
-    "party": [PARTY_MAP.get(x, x) for x in params["party"]],
-    "race": [RACE_MAP.get(x, x) for x in params["race"]],
-    "ethnicity": [ETHNICITY_MAP.get(x, x) for x in params["ethnicity"]],
-    "gender": [GENDER_MAP.get(x, x) for x in params["gender"]],
-    "age_min": params["age_min"],
-    "age_max": params["age_max"],
-    "state_house": params["state_house"],
-    "state_senate": params["state_senate"],
-    "congressional": params["congressional"],
-}
+def map_param_codes(in_params):
+    params_codes: Dict[str, Any] = {
+        "County": map_county_names_to_codes(in_params["County"]),
+        "Party": [PARTY_MAP.get(x, x) for x in in_params["Party"]],
+        "Race": [RACE_MAP.get(x, x) for x in in_params["Race"]],
+        "Ethnicity": [ETHNICITY_MAP.get(x, x) for x in in_params["Ethnicity"]],
+        "Gender": [GENDER_MAP.get(x, x) for x in in_params["Gender"]],
+        "Age": in_params["Age"],
+        "StateHouseDistrict": in_params["state_house"],
+        "StateSenateDistrict": in_params["state_senate"],
+        "CongressionalDistrcit": in_params["congressional"],
+    }
+    return params_codes
+
 
 # List name for submission
 list_name_input = st.text_input(
@@ -325,9 +282,9 @@ if "last_params_codes" not in st.session_state:
 # ---------- Generate counts ----------
 if generate_clicked:
     try:
-        df = filter_voters(params_codes)  # NOTE: pass mapped codes
+        df = filter_voters(map_param_codes(params))  # NOTE: pass mapped codes
         st.session_state.last_df = df
-        st.session_state.last_params_codes = params_codes
+        st.session_state.last_params_codes = map_param_codes(params)
     except Exception as e:
         st.error(f"Error generating counts: {e}")
         st.stop()
@@ -365,8 +322,8 @@ if submit_clicked:
     # Ensure we have data to submit
     if st.session_state.last_df is None:
         try:
-            st.session_state.last_df = filter_voters(params_codes)
-            st.session_state.last_params_codes = params_codes
+            st.session_state.last_df = filter_voters(map_param_codes(params))
+            st.session_state.last_params_codes = map_param_codes(params)
         except Exception as e:
             st.error(f"Could not generate data for submission: {e}")
             st.stop()
@@ -381,12 +338,12 @@ if submit_clicked:
         #     request_name: str,
         #     params
         # )
-        generate_rct_mailing_list(
+        VRMailListGenerator().generate_rct_mailing_list(
             list_df=st.session_state.last_df,
             requestor_email=st.session_state.user_info["email"],
             requestor_name=st.session_state.user_info["name"],
             request_name=safe_name,
-            params=params,  # pass human-readable params along
+            params=map_param_codes(params),  # pass human-readable params along
         )
         st.success(f"List request **{safe_name}** submitted.")
         st.info(
@@ -404,8 +361,8 @@ if submit_clicked:
 
 # =============== Footer ===============
 st.markdown("---")
-st.caption(
-    "Notes: Past lists are read from GCS at gs://vr_mail_lists/lists/. "
-    "Before querying, UI selections are mapped to codes (e.g., Male→M, Black→B). "
-    "Replace the demo `filter_voters(params_codes)` with your real implementation."
-)
+# st.caption(
+#     "Notes: Past lists are read from GCS at gs://vr_mail_lists/lists/. "
+#     "Before querying, UI selections are mapped to codes (e.g., Male→M, Black→B). "
+#     "Replace the demo `filter_voters(params_codes)` with your real implementation."
+# )

@@ -44,6 +44,8 @@ class VRMailListGenerator:
     def filter_voters(self, params: Dict[str, Any]) -> pd.DataFrame:
         """Filter voters by querying BigQuery based on search parameters."""
         logger.info("Querying BigQuery for voter data")
+        # Remove parameters with empty lists or None values
+        params = {k: v for k, v in params.items() if v not in (None, [])}
 
         # Base query
         query = "SELECT * FROM `vr-mail-generator.voterfile.vf_nc_partial` WHERE 1=1"
@@ -292,10 +294,17 @@ class VRMailListGenerator:
 if __name__ == "__main__":
     # Example usage
     params = {
-        "Party": "DEM",
-        "Age": [18, 49],
-        "Gender": "F",
+        "County": [],
+        "Party": [],
+        "Race": [],
+        "Ethnicity": [],
+        "Gender": [],
+        "Age": [18, 100],
+        "StateHouseDistrict": [],
+        "StateSenateDistrict": [],
+        "CongressionalDistrcit": [],
     }
+
     generator = VRMailListGenerator()
     target_voters = generator.filter_voters(params)
     generator.generate_rct_mailing_list(

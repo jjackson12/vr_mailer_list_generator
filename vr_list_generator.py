@@ -24,6 +24,7 @@ import logging
 from google.cloud import bigquery
 import zipfile
 import os
+import requests
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -149,75 +150,59 @@ class VRMailListGenerator:
         logger.info(f"Uploaded {file_path} -> gs://{bucket_name}/{dest_blob_name}")
 
     def email_completed_list(self, to_emails: List[str], list_name: str):
-        subject = "Mailing List Completed, Attached: " + list_name
-        # Check if list_name exists in the bucket
-        bucket = self.buckets_client.bucket(BUCKET_NAME)
-        prefix = f"lists/{list_name}/"
-        blobs = list(bucket.list_blobs(prefix=prefix))
-        if not blobs:
-            raise FileNotFoundError(f"No files found under gs://{BUCKET_NAME}/{prefix}")
-
-        # Create a zip file containing the CSV files
-
-        zip_file_path = f"{list_name}.zip"
-        with zipfile.ZipFile(zip_file_path, "w") as zipf:
-            for blob in blobs:
-                local_file = blob.name.replace("/", "__")
-                blob.download_to_filename(local_file)
-                zipf.write(local_file, os.path.basename(local_file))
-                os.remove(local_file)
-
+        subject = "Mailing List Completed: " + list_name
         # Attach the zip file to the email
         self.send_email(
             subject=subject,
-            body=f"The mailing list '{list_name}' is attached as a zip file.",
+            body=f"The mailing list '{list_name}' can now be downloaded from the Mailer generator app.",
             to_emails=to_emails,
-            attachments_filepaths=[zip_file_path],
         )
-
-        # Clean up the zip file
-        os.remove(zip_file_path)
 
     def send_email(
         self, subject: str, body: str, to_emails: List[str], attachments_filepaths=None
     ):
-        """Send an email notification."""
-        # Example using SMTP (configure for your provider)
-        msg = MIMEMultipart(body)
-        msg["Subject"] = subject
-        msg["From"] = "mailer@example.com"
-        msg["To"] = ", ".join(to_emails)
+        """Send an email notification using MailerSend API."""
+
+        url = "https://api.mailersend.com/v1/email"
+        headers = {
+            "Authorization": f"Bearer {MAILSEND_ACCESS_TOKEN}",
+            "Content-Type": "application/json",
+        }
+
+        # Prepare the email data
+        email_data = {
+            "from": {
+                "email": "jake.j3.jackson@gmail.com",
+                "name": "VR Mail List Generator",
+            },
+            "to": [{"email": email} for email in to_emails],
+            "subject": subject,
+            "text": body,
+        }
+
+        # Add attachments if provided
         if attachments_filepaths:
+            email_data["attachments"] = []
             for attachment_fp in attachments_filepaths:
-
-                # Attach email body
-                msg.attach(MIMEText(body, "plain"))
-
-                # Attach file
                 with open(attachment_fp, "rb") as attachment:
-                    part = MIMEBase("application", "octet-stream")
-                    part.set_payload(attachment.read())
+                    encoded_file = encoders.encode_base64(attachment.read())
+                    email_data["attachments"].append(
+                        {
+                            "content": encoded_file.decode("utf-8"),
+                            "filename": os.path.basename(attachment_fp),
+                        }
+                    )
 
-                encoders.encode_base64(part)  # Encode to base64
-                part.add_header(
-                    "Content-Disposition", f"attachment; filename={attachment_fp}"
-                )  # Manually set file name
-                msg.attach(part)  # Attach the file to the email
+        # # Send the email via MailerSend API
+        # response = requests.post(url, headers=headers, json=email_data)
 
-                # with open(attachment_fp, "rb") as f:
-                #     part = MIMEText(f.read(), "base64")
-                #     part.add_header(
-                #         "Content-Disposition",
-                #         f"attachment; filename={os.path.basename(attachment)}",
-                #     )
-                #     msg.attach(part)
-        logger.info(f"Queued email: subject='{subject}' to={to_emails} body={body}")
-        # TODO: SMTP config here
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()  # Secure connection
-            server.login(SMTP_USERNAME, SMTP_PASSWORD)
-            server.sendmail(msg["From"], to_emails, msg.as_string())
-        print(f"Email sent to {to_emails}: {subject}")
+        # if response.status_code == 202:
+        #     logger.info(f"Email sent successfully to {to_emails}: {subject}")
+        # else:
+        #     logger.error(
+        #         f"Failed to send email. Status code: {response.status_code}, Response: {response.text}"
+        #     )
+        #     raise Exception(f"Email sending failed: {response.text}")
 
     def clean_request_name(self, raw: str) -> str:
         """Produce a filesystem / GCS safe base name."""

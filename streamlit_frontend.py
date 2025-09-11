@@ -15,8 +15,11 @@ from vr_list_generator import VRMailListGenerator
 # GCS
 try:
     from google.cloud import storage
+
 except Exception as _e:
     storage = None  # We'll show a friendly error if missing
+import zipfile
+from io import BytesIO
 
 # =============== Config ===============
 # TODO: Could make the RCT part optional
@@ -146,27 +149,107 @@ st.caption(
     f"Signed in as **{st.session_state.user_info['name']}** • {st.session_state.user_info['email']}"
 )
 
-with st.expander("Past lists (from GCS)", expanded=True):
+
+def download_and_zip_files(list_name: str) -> BytesIO:
+    """Download files from GCS for a given list_name, zip them, and return as BytesIO."""
+    client = get_gcs_client()
+    bucket = client.bucket("vr_mail_lists")
+    prefix = f"lists/{list_name}/"
+    blobs = list(bucket.list_blobs(prefix=prefix))
+    if not blobs:
+        raise FileNotFoundError(f"No files found under gs://vr_mail_lists/{prefix}")
+
+    zip_buffer = BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w") as zipf:
+        for blob in blobs:
+            local_file = blob.name.replace("/", "__")
+            blob_data = blob.download_as_bytes()
+            zipf.writestr(local_file, blob_data)
+    zip_buffer.seek(0)
+    return zip_buffer
+
+
+with st.expander("Saved Lists", expanded=True):
     try:
         past_df = load_past_lists_gcs(GCS_BUCKET_SPEC)
         if past_df.empty:
             st.info("No lists found yet in gs://vr_mail_lists/lists/.")
         else:
-            st.dataframe(
-                past_df[["list_name", "created_at"]],
-                use_container_width=True,
-                hide_index=True,
+            # Pagination setup
+            items_per_page = 10
+            total_items = len(past_df)
+            total_pages = (total_items + items_per_page - 1) // items_per_page
+            current_page = st.session_state.get("pagination_input", 1)
+
+            # Calculate start and end indices for the current page
+            start_idx = (current_page - 1) * items_per_page
+            end_idx = start_idx + items_per_page
+            page_df = past_df.iloc[start_idx:end_idx]
+
+            for _, row in page_df.iterrows():
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.write(f"**{row['list_name']}**")
+                    st.caption(
+                        f"Created at: {row['created_at']}"
+                    )  # Use caption for smaller text
+                with col2:
+                    if st.button(f"Prepare for download", key=row["list_name"]):
+                        try:
+                            zip_file = download_and_zip_files(row["list_name"])
+                            st.download_button(
+                                label="Download ZIP",
+                                data=zip_file,
+                                file_name=f"{row['list_name']}.zip",
+                                mime="application/zip",
+                            )
+                        except Exception as e:
+                            st.error(f"Error downloading files: {e}")
+
+            # Display pagination info at the bottom
+            st.write(f"Page {current_page} of {total_pages}")
+            current_page = st.number_input(
+                "Page",
+                min_value=1,
+                max_value=total_pages,
+                value=current_page,
+                step=1,
+                key="pagination_input",
             )
+    except Exception as e:
+        st.error(f"Error loading past lists from GCS: {e}")
         st.button(
             "Refresh list", on_click=lambda: load_past_lists_gcs.clear()
         )  # clears cache
-    except Exception as e:
-        st.error(f"Error loading past lists from GCS: {e}")
+    # Add a "Refresh Lists" button at the bottom
+    if st.button("Refresh Lists"):
+        load_past_lists_gcs.clear()
+        st.experimental_rerun()
+
+# with st.expander("Past lists (from GCS)", expanded=True):
+#     try:
+#         past_df = load_past_lists_gcs(GCS_BUCKET_SPEC)
+#         if past_df.empty:
+#             st.info("No lists found yet in gs://vr_mail_lists/lists/.")
+#         else:
+#             st.dataframe(
+#                 past_df[["list_name", "created_at"]],
+#                 use_container_width=True,
+#                 hide_index=True,
+#             )
+#         st.button(
+#             "Refresh list", on_click=lambda: load_past_lists_gcs.clear()
+#         )  # clears cache
+#     except Exception as e:
+#         st.error(f"Error loading past lists from GCS: {e}")
 
 st.markdown("---")
 
 # ---------- Search Criteria ----------
 st.subheader("Search criteria")
+st.caption(
+    "NOTE: Currently, this is referencing only the voters in Yadkin County, North Carolina"
+)
 
 
 c1, c2 = st.columns([3, 2], gap="large")
@@ -366,9 +449,9 @@ list_name_input = st.text_input(
 )
 
 # Action buttons
-b1, b2 = st.columns([1, 1], gap="large")
-generate_clicked = b1.button("Generate counts", type="primary")
-submit_clicked = b2.button("Submit list request")
+b1, b2 = st.columns([1, 2], gap="large")
+generate_clicked = b1.button("Generate counts", type="secondary")
+submit_clicked = b2.button("Submit list request", type="primary")
 
 # Keep last results in session
 if "last_df" not in st.session_state:

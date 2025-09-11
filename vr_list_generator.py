@@ -12,12 +12,18 @@ Assumes voter registration & mailing data in 'nc_vf_partial.csv'.
 import pandas as pd
 import random
 import smtplib
+from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.base import MIMEBase
+from email import encoders
+
 from google.cloud import storage
 from typing import List, Dict, Any
 import re
 import logging
 from google.cloud import bigquery
+import zipfile
+import os
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -26,9 +32,19 @@ logger = logging.getLogger(__name__)
 
 # CONFIG
 BUCKET_NAME = "vr_mail_lists"
-REVIEWER_EMAIL = "jake.j3.jackson@gmail.com"
+REVIEWER_EMAIL = "jjjackson116@gmail.com"
 BUCKETS_SERVICE_ACCOUNT_KEY = "vr-mail-generator-56bee8a8278b.json"
 BIGQUERY_SERVICE_ACCOUNT_KEY = "vr-mail-generator-8e97a63564fe.json"
+
+
+# # SMTP Configuration
+# SMTP_SERVER = "smtp.mailersend.net"  # Replace with actual SMTP server
+# SMTP_PORT = 2525  # 465 for SSL, 587 for TLS
+# SMTP_USERNAME = "MS_YLCxnn@test-vz9dlem08m64kj50.mlsender.net"
+# SMTP_PASSWORD = "mssp.gFBRElb.351ndgw9jyr4zqx8.yu20BC7"
+
+with open("mailsend_access_token.txt", "r") as file:
+    MAILSEND_ACCESS_TOKEN = file.read().strip()
 
 
 class VRMailListGenerator:
@@ -64,6 +80,11 @@ class VRMailListGenerator:
         special_queries = {
             "Age": lambda x: f" AND age_at_year_end BETWEEN {min(x)} AND {max(x)}"
         }
+        int_fields = [
+            "StateSenateDistrict",
+            "StateHouseDistrict",
+            "CongressionalDistrict",
+        ]
         # Add filters dynamically based on params
         for key, value in params.items():
             if value is not None:
@@ -72,7 +93,10 @@ class VRMailListGenerator:
                     query += special_queries[key](value)
                 else:
                     if isinstance(value, list):
-                        value_list = ", ".join([f"'{v}'" for v in value])
+                        if key in int_fields:
+                            value_list = ", ".join([str(int(v)) for v in value])
+                        else:
+                            value_list = ", ".join([f"'{v}'" for v in value])
                         query += f" AND {param_db_name} IN ({value_list})"
                     else:
                         query += f" AND {param_db_name} = '{value}'"
@@ -124,18 +148,75 @@ class VRMailListGenerator:
         blob.upload_from_filename(file_path)
         logger.info(f"Uploaded {file_path} -> gs://{bucket_name}/{dest_blob_name}")
 
-    def send_email(self, subject: str, body: str, to_emails: List[str]):
+    def email_completed_list(self, to_emails: List[str], list_name: str):
+        subject = "Mailing List Completed, Attached: " + list_name
+        # Check if list_name exists in the bucket
+        bucket = self.buckets_client.bucket(BUCKET_NAME)
+        prefix = f"lists/{list_name}/"
+        blobs = list(bucket.list_blobs(prefix=prefix))
+        if not blobs:
+            raise FileNotFoundError(f"No files found under gs://{BUCKET_NAME}/{prefix}")
+
+        # Create a zip file containing the CSV files
+
+        zip_file_path = f"{list_name}.zip"
+        with zipfile.ZipFile(zip_file_path, "w") as zipf:
+            for blob in blobs:
+                local_file = blob.name.replace("/", "__")
+                blob.download_to_filename(local_file)
+                zipf.write(local_file, os.path.basename(local_file))
+                os.remove(local_file)
+
+        # Attach the zip file to the email
+        self.send_email(
+            subject=subject,
+            body=f"The mailing list '{list_name}' is attached as a zip file.",
+            to_emails=to_emails,
+            attachments_filepaths=[zip_file_path],
+        )
+
+        # Clean up the zip file
+        os.remove(zip_file_path)
+
+    def send_email(
+        self, subject: str, body: str, to_emails: List[str], attachments_filepaths=None
+    ):
         """Send an email notification."""
         # Example using SMTP (configure for your provider)
-        msg = MIMEText(body)
+        msg = MIMEMultipart(body)
         msg["Subject"] = subject
         msg["From"] = "mailer@example.com"
         msg["To"] = ", ".join(to_emails)
+        if attachments_filepaths:
+            for attachment_fp in attachments_filepaths:
+
+                # Attach email body
+                msg.attach(MIMEText(body, "plain"))
+
+                # Attach file
+                with open(attachment_fp, "rb") as attachment:
+                    part = MIMEBase("application", "octet-stream")
+                    part.set_payload(attachment.read())
+
+                encoders.encode_base64(part)  # Encode to base64
+                part.add_header(
+                    "Content-Disposition", f"attachment; filename={attachment_fp}"
+                )  # Manually set file name
+                msg.attach(part)  # Attach the file to the email
+
+                # with open(attachment_fp, "rb") as f:
+                #     part = MIMEText(f.read(), "base64")
+                #     part.add_header(
+                #         "Content-Disposition",
+                #         f"attachment; filename={os.path.basename(attachment)}",
+                #     )
+                #     msg.attach(part)
         logger.info(f"Queued email: subject='{subject}' to={to_emails} body={body}")
         # TODO: SMTP config here
-        # with smtplib.SMTP('smtp.example.com') as server:
-        #     server.login('user', 'pass')
-        #     server.sendmail(msg['From'], to_emails, msg.as_string())
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()  # Secure connection
+            server.login(SMTP_USERNAME, SMTP_PASSWORD)
+            server.sendmail(msg["From"], to_emails, msg.as_string())
         print(f"Email sent to {to_emails}: {subject}")
 
     def clean_request_name(self, raw: str) -> str:
@@ -176,6 +257,16 @@ class VRMailListGenerator:
         # Mapping raw file columns -> friendly names used in params
         # Filter by registration address fields
 
+        # New: derive unique cleaned request name
+        cleaned_base = self.clean_request_name(request_name)
+        logger.info(
+            f"Cleaned request name='{cleaned_base}' (original='{request_name}')"
+        )
+        bucket = self.buckets_client.bucket(BUCKET_NAME)
+        unique_name = self.ensure_unique_request_name(bucket, cleaned_base)
+        logger.info(f"Resolved unique request name='{unique_name}'")
+        gcs_base_path = f"lists/{unique_name}"
+
         list_df["Name"] = (
             list_df["first_name"].str.strip() + " " + list_df["last_name"].str.strip()
         )
@@ -188,15 +279,14 @@ class VRMailListGenerator:
         list_df["MailingState"] = list_df["mail_state"].str.strip()
         list_df["MailingZip"] = list_df["mail_zipcode"].astype(str).str.strip()
 
-        # New: derive unique cleaned request name
-        cleaned_base = self.clean_request_name(request_name)
-        logger.info(
-            f"Cleaned request name='{cleaned_base}' (original='{request_name}')"
+        # Send emails (include original and final names)
+        self.send_email(
+            subject=f"Mailer List Request Received: {request_name}",
+            body=(
+                f"Hi {requestor_name}, we received your request named: '{request_name}'.\n"
+            ),
+            to_emails=[requestor_email, REVIEWER_EMAIL],
         )
-        bucket = self.buckets_client.bucket(BUCKET_NAME)
-        unique_name = self.ensure_unique_request_name(bucket, cleaned_base)
-        logger.info(f"Resolved unique request name='{unique_name}'")
-        gcs_base_path = f"lists/{unique_name}"
 
         # Get mailing addresses for output
         list_df = list_df[
@@ -265,51 +355,32 @@ class VRMailListGenerator:
         original_name = request_name
         final_name = unique_name
 
-        # Send emails (include original and final names)
-        self.send_email(
-            subject=f"Mailer List Request Received: {original_name}",
-            body=(
-                f"Hi {requestor_name}, we received your request named: '{original_name}'.\n"
-                f"Final list identifier: {final_name}\n"
-                f"Files will be stored under gs://{BUCKET_NAME}/{gcs_base_path}/"
-            ),
-            to_emails=[requestor_email, REVIEWER_EMAIL],
-        )
-        self.send_email(
-            subject=f"Mailer List Ready: {final_name}",
-            body=(
-                f"Hi {requestor_name}, your mailing list (request: '{original_name}') is ready. \n"
-                f"GCS paths:\n"
-                f" - gs://{BUCKET_NAME}/{gcs_base_path}/treatment_group.csv\n"
-                f" - gs://{BUCKET_NAME}/{gcs_base_path}/control_group.csv\n"
-                f" - gs://{BUCKET_NAME}/{gcs_base_path}/treatment_mailing_list.csv\n"
-                f" - gs://{BUCKET_NAME}/{gcs_base_path}/control_mailing_list.csv"
-            ),
-            to_emails=[requestor_email, REVIEWER_EMAIL],
+        self.email_completed_list(
+            to_emails=[requestor_email, REVIEWER_EMAIL], list_name=final_name
         )
         logger.info("Notification emails processed")
         logger.info("Request completed successfully")
 
 
-if __name__ == "__main__":
-    # Example usage
-    params = {
-        "County": [],
-        "Party": [],
-        "Race": [],
-        "Ethnicity": [],
-        "Gender": [],
-        "Age": [18, 100],
-        "StateHouseDistrict": [],
-        "StateSenateDistrict": [],
-        "CongressionalDistrcit": [],
-    }
+# if __name__ == "__main__":
+#     # Example usage
+#     params = {
+#         "County": [],
+#         "Party": [],
+#         "Race": [],
+#         "Ethnicity": [],
+#         "Gender": [],
+#         "Age": [18, 100],
+#         "StateHouseDistrict": [],
+#         "StateSenateDistrict": [],
+#         "CongressionalDistrict": [],
+#     }
 
-    generator = VRMailListGenerator()
-    target_voters = generator.filter_voters(params)
-    generator.generate_rct_mailing_list(
-        list_df=target_voters,
-        requestor_email="user@example.com",
-        requestor_name="Jane Doe",
-        request_name="Test Request: Female Dems Under 50",
-    )
+#     generator = VRMailListGenerator()
+#     target_voters = generator.filter_voters(params)
+#     generator.generate_rct_mailing_list(
+#         list_df=target_voters,
+#         requestor_email="user@example.com",
+#         requestor_name="Jane Doe",
+#         request_name="Test Request: Female Dems Under 50",
+#     )

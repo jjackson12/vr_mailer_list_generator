@@ -4,3 +4,5 @@ venv
 *.json
 *.pyc
 .DS_Store
+mailsend_access_token.txt
+*.zip

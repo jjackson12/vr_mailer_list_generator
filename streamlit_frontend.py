@@ -169,18 +169,114 @@ st.markdown("---")
 st.subheader("Search criteria")
 
 
-def parse_csv_list(value: str) -> List[str]:
-    if not value:
-        return []
-    return [item.strip() for item in value.split(",") if item.strip()]
-
-
 c1, c2 = st.columns([3, 2], gap="large")
 with c1:
-    county_csv = st.text_input(
-        "County (comma-separated)",
-        placeholder="e.g. Yadkin, Mecklenburg",
-        help="Type one or more counties, separated by commas.",
+    counties = [
+        "Alamance",
+        "Alexander",
+        "Alleghany",
+        "Anson",
+        "Ashe",
+        "Avery",
+        "Beaufort",
+        "Bertie",
+        "Bladen",
+        "Brunswick",
+        "Buncombe",
+        "Burke",
+        "Cabarrus",
+        "Caldwell",
+        "Camden",
+        "Carteret",
+        "Caswell",
+        "Catawba",
+        "Chatham",
+        "Cherokee",
+        "Chowan",
+        "Clay",
+        "Cleveland",
+        "Columbus",
+        "Craven",
+        "Cumberland",
+        "Currituck",
+        "Dare",
+        "Davidson",
+        "Davie",
+        "Duplin",
+        "Durham",
+        "Edgecombe",
+        "Forsyth",
+        "Franklin",
+        "Gaston",
+        "Gates",
+        "Graham",
+        "Granville",
+        "Greene",
+        "Guilford",
+        "Halifax",
+        "Harnett",
+        "Haywood",
+        "Henderson",
+        "Hertford",
+        "Hoke",
+        "Hyde",
+        "Iredell",
+        "Jackson",
+        "Johnston",
+        "Jones",
+        "Lee",
+        "Lenoir",
+        "Lincoln",
+        "McDowell",
+        "Macon",
+        "Madison",
+        "Martin",
+        "Mecklenburg",
+        "Mitchell",
+        "Montgomery",
+        "Moore",
+        "Nash",
+        "New Hanover",
+        "Northampton",
+        "Onslow",
+        "Orange",
+        "Pamlico",
+        "Pasquotank",
+        "Pender",
+        "Perquimans",
+        "Person",
+        "Pitt",
+        "Polk",
+        "Randolph",
+        "Richmond",
+        "Robeson",
+        "Rockingham",
+        "Rowan",
+        "Rutherford",
+        "Sampson",
+        "Scotland",
+        "Stanly",
+        "Stokes",
+        "Surry",
+        "Swain",
+        "Transylvania",
+        "Tyrrell",
+        "Union",
+        "Vance",
+        "Wake",
+        "Warren",
+        "Washington",
+        "Watauga",
+        "Wayne",
+        "Wilkes",
+        "Wilson",
+        "Yadkin",
+        "Yancey",
+    ]
+    selected_counties = st.multiselect(
+        "County",
+        options=counties,
+        help="Select one or more counties from the list.",
     )
     party = st.multiselect(
         "Party",
@@ -197,7 +293,7 @@ with c1:
     )
     gender = st.multiselect(
         "Gender",
-        options=["Male", "Female", "Nonbinary/Other", "Unknown"],
+        options=["Male", "Female", "Undesignated"],
     )
 with c2:
     age_min, age_max = st.slider(
@@ -209,13 +305,13 @@ with c2:
         help="Inclusive bounds",
     )
     st.write("**Districts**")
-    state_house = st.multiselect("State House", options=list(range(1, 66)))
-    state_senate = st.multiselect("State Senate", options=list(range(1, 36)))
-    congressional = st.multiselect("Congressional", options=list(range(1, 9)))
+    state_house = st.multiselect("State House", options=list(range(1, 78)))
+    state_senate = st.multiselect("State Senate", options=list(range(1, 37)))
+    congressional = st.multiselect("Congressional", options=list(range(1, 11)))
 
 # Human-readable params (kept as-is for downstream request payloads)
 params: Dict[str, Any] = {
-    "County": parse_csv_list(county_csv),
+    "County": selected_counties,
     "Party": party,
     "Race": race,
     "Ethnicity": ethnicity,
@@ -227,18 +323,19 @@ params: Dict[str, Any] = {
 }
 
 # ---- Mapping to codes BEFORE calling filter_voters ----
-# Adjust these to match your data dictionary.
-PARTY_MAP = {"DEM": "D", "REP": "R", "UNA": "U", "LIB": "L", "GRE": "G", "OTH": "O"}
-GENDER_MAP = {"Male": "M", "Female": "F", "Nonbinary/Other": "X", "Unknown": "U"}
+
+GENDER_MAP = {"Male": "M", "Female": "F", "Undesignated": "U"}
 RACE_MAP = {
     "White": "W",
     "Black": "B",
     "Asian": "A",
-    "Native American": "N",
+    "Native American": "I",
     "Other": "O",
     "Unknown": "U",
+    "Two or More Races": "M",
+    "Native Hawaiian or Pacific Islander": "P",
 }
-ETHNICITY_MAP = {"Hispanic/Latino": "H", "Non-Hispanic": "N", "Unknown": "U"}
+ETHNICITY_MAP = {"Hispanic/Latino": "HL", "Non-Hispanic": "NL", "Unknown": "UN"}
 
 
 # Example county code map (optional). If your data expects FIPS/short codes, map here.
@@ -251,14 +348,14 @@ def map_county_names_to_codes(counties: List[str]) -> List[str]:
 def map_param_codes(in_params):
     params_codes: Dict[str, Any] = {
         "County": map_county_names_to_codes(in_params["County"]),
-        "Party": [PARTY_MAP.get(x, x) for x in in_params["Party"]],
+        "Party": in_params["Party"],
         "Race": [RACE_MAP.get(x, x) for x in in_params["Race"]],
         "Ethnicity": [ETHNICITY_MAP.get(x, x) for x in in_params["Ethnicity"]],
         "Gender": [GENDER_MAP.get(x, x) for x in in_params["Gender"]],
         "Age": in_params["Age"],
         "StateHouseDistrict": in_params["state_house"],
         "StateSenateDistrict": in_params["state_senate"],
-        "CongressionalDistrcit": in_params["congressional"],
+        "CongressionalDistrict": in_params["congressional"],
     }
     return params_codes
 
@@ -328,36 +425,28 @@ if submit_clicked:
             st.error(f"Could not generate data for submission: {e}")
             st.stop()
 
-    try:
-        # Call your pipeline entrypoint instead of saving locally.
-        # Signature:
-        # generate_rct_mailing_list(
-        #     list_df: pd.DataFrame,
-        #     requestor_email: str,
-        #     requestor_name: str,
-        #     request_name: str,
-        #     params
-        # )
-        VRMailListGenerator().generate_rct_mailing_list(
-            list_df=st.session_state.last_df,
-            requestor_email=st.session_state.user_info["email"],
-            requestor_name=st.session_state.user_info["name"],
-            request_name=safe_name,
-            params=map_param_codes(params),  # pass human-readable params along
-        )
-        st.success(f"List request **{safe_name}** submitted.")
-        st.info(
-            "You’ll see it appear in the Past lists table once your backend writes it to GCS."
-        )
-        # Soft refresh of the cached listing
-        load_past_lists_gcs.clear()
-    except NameError:
-        st.error(
-            "`generate_rct_mailing_list` is not defined/imported in this app. "
-            "Import it or ensure it’s on PYTHONPATH."
-        )
-    except Exception as e:
-        st.error(f"Failed to submit list request: {e}")
+    # try:
+    generator = VRMailListGenerator()
+    generator.generate_rct_mailing_list(
+        list_df=st.session_state.last_df,
+        requestor_email=st.session_state.user_info["email"],
+        requestor_name=st.session_state.user_info["name"],
+        request_name=safe_name,
+        params=map_param_codes(params),  # pass human-readable params along
+    )
+    st.success(f"List request **{safe_name}** submitted.")
+    st.info(
+        "You’ll see it appear in the Past lists table once your backend writes it to GCS."
+    )
+    # Soft refresh of the cached listing
+    load_past_lists_gcs.clear()
+    # except NameError:
+    #     st.error(
+    #         "`generate_rct_mailing_list` is not defined/imported in this app. "
+    #         "Import it or ensure it’s on PYTHONPATH."
+    #     )
+    # except Exception as e:
+    #     st.error(f"Failed to submit list request: {e}")
 
 # =============== Footer ===============
 st.markdown("---")

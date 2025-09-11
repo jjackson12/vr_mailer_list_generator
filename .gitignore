@@ -6,3 +6,4 @@ venv
 .DS_Store
 mailsend_access_token.txt
 *.zip
+test_bq.py

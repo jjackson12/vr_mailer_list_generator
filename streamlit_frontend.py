@@ -202,6 +202,7 @@ with st.expander("Saved Lists", expanded=True):
                                 data=zip_file,
                                 file_name=f"{row['list_name']}.zip",
                                 mime="application/zip",
+                                type="primary",
                             )
                         except Exception as e:
                             st.error(f"Error downloading files: {e}")
@@ -224,7 +225,7 @@ with st.expander("Saved Lists", expanded=True):
     # Add a "Refresh Lists" button at the bottom
     if st.button("Refresh Lists"):
         load_past_lists_gcs.clear()
-        st.experimental_rerun()
+        st.rerun()
 
 # with st.expander("Past lists (from GCS)", expanded=True):
 #     try:
@@ -517,9 +518,8 @@ if submit_clicked:
         request_name=safe_name,
         params=map_param_codes(params),  # pass human-readable params along
     )
-    st.success(f"List request **{safe_name}** submitted.")
-    st.info(
-        "You’ll see it appear in the Past lists table once your backend writes it to GCS."
+    st.success(
+        f"List request **{safe_name}** submitted. You’ll see it appear in the Past lists table once your backend writes it to GCS."
     )
     # Soft refresh of the cached listing
     load_past_lists_gcs.clear()

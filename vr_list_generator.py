@@ -282,14 +282,6 @@ class VRMailListGenerator:
         control_group, treatment_group = self.create_control_group(list_df)
         logger.info(f"Control mailing rows={len(control_group)}")
         logger.info(f"Treatment mailing rows={len(treatment_group)}")
-
-        # Save PEOPLE lists (ungrouped)
-        treatment_people_local = f"{unique_name}/treatment_group.csv"
-        control_people_local = f"{unique_name}/control_group.csv"
-        treatment_group.to_csv(treatment_people_local.replace("/", "__"), index=False)
-        control_group.to_csv(control_people_local.replace("/", "__"), index=False)
-        logger.info("PEOPLE CSV files written locally")
-
         # Group treatment list by household
         grouped_treatment_mailing = (
             treatment_group.groupby(
@@ -308,36 +300,24 @@ class VRMailListGenerator:
             .reset_index()
         )
 
-        # Save grouped MAILING lists
-        treatment_mailing_local = f"{unique_name}/treatment_mailing_list.csv"
-        control_mailing_local = f"{unique_name}/control_mailing_list.csv"
-        grouped_treatment_mailing.to_csv(
-            treatment_mailing_local.replace("/", "__"), index=False
-        )
-        grouped_control_mailing.to_csv(
-            control_mailing_local.replace("/", "__"), index=False
-        )
-        logger.info("MAILING CSV files written locally")
-
         # Upload PEOPLE lists to GCS
-        bucket.blob(f"{gcs_base_path}/treatment_group.csv").upload_from_filename(
-            treatment_people_local.replace("/", "__")
+        bucket.blob(f"{gcs_base_path}/treatment_group.csv").upload_from_string(
+            treatment_group.to_csv(index=False), content_type="text/csv"
         )
-        bucket.blob(f"{gcs_base_path}/control_group.csv").upload_from_filename(
-            control_people_local.replace("/", "__")
+        bucket.blob(f"{gcs_base_path}/control_group.csv").upload_from_string(
+            control_group.to_csv(index=False), content_type="text/csv"
         )
         logger.info("PEOPLE uploads to GCS complete")
 
         # Upload grouped MAILING lists to GCS
-        bucket.blob(f"{gcs_base_path}/treatment_mailing_list.csv").upload_from_filename(
-            treatment_mailing_local.replace("/", "__")
+        bucket.blob(f"{gcs_base_path}/treatment_mailing_list.csv").upload_from_string(
+            grouped_treatment_mailing.to_csv(index=False), content_type="text/csv"
         )
-        bucket.blob(f"{gcs_base_path}/control_mailing_list.csv").upload_from_filename(
-            control_mailing_local.replace("/", "__")
+        bucket.blob(f"{gcs_base_path}/control_mailing_list.csv").upload_from_string(
+            grouped_control_mailing.to_csv(index=False), content_type="text/csv"
         )
         logger.info("MAILING uploads to GCS complete")
 
-        original_name = request_name
         final_name = unique_name
 
         self.email_completed_list(

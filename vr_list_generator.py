@@ -25,27 +25,18 @@ from google.cloud import bigquery
 import zipfile
 import os
 import requests
+from config import (
+    BUCKET_NAME,
+    REVIEWER_EMAIL,
+    BUCKETS_SERVICE_ACCOUNT_KEY,
+    BIGQUERY_SERVICE_ACCOUNT_KEY,
+    MAILSEND_ACCESS_TOKEN,
+)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
 )
 logger = logging.getLogger(__name__)
-
-# CONFIG
-BUCKET_NAME = "vr_mail_lists"
-REVIEWER_EMAIL = "jjjackson116@gmail.com"
-BUCKETS_SERVICE_ACCOUNT_KEY = "vr-mail-generator-56bee8a8278b.json"
-BIGQUERY_SERVICE_ACCOUNT_KEY = "vr-mail-generator-8e97a63564fe.json"
-
-
-# # SMTP Configuration
-# SMTP_SERVER = "smtp.mailersend.net"  # Replace with actual SMTP server
-# SMTP_PORT = 2525  # 465 for SSL, 587 for TLS
-# SMTP_USERNAME = "MS_YLCxnn@test-vz9dlem08m64kj50.mlsender.net"
-# SMTP_PASSWORD = "mssp.gFBRElb.351ndgw9jyr4zqx8.yu20BC7"
-
-with open("mailsend_access_token.txt", "r") as file:
-    MAILSEND_ACCESS_TOKEN = file.read().strip()
 
 
 class VRMailListGenerator:

@@ -8,7 +8,7 @@ from typing import Dict, Any, List, Tuple
 import pandas as pd
 import numpy as np
 import streamlit as st
-from config import BUCKETS_SERVICE_ACCOUNT_KEY
+from config import BUCKETS_SERVICE_ACCOUNT_KEY, BUCKET_NAME
 
 from vr_list_generator import VRMailListGenerator
 
@@ -24,9 +24,6 @@ from io import BytesIO
 # =============== Config ===============
 # TODO: Could make the RCT part optional
 st.set_page_config(page_title="Mailer RCT list generator", layout="wide")
-
-# Bucket spec like "vr_mail_lists/lists" or "gs://vr_mail_lists/lists"
-GCS_BUCKET_SPEC = "vr_mail_lists/lists"  # bucket "vr_mail_lists", prefix "lists/"
 
 # =============== Helper functions ===============
 
@@ -66,7 +63,7 @@ def load_past_lists_gcs(spec: str) -> pd.DataFrame:
     client = get_gcs_client()
     rows = []
     lists_data = {}
-    for blob in client.list_blobs("vr_mail_lists"):
+    for blob in client.list_blobs(BUCKET_NAME):
         # Skip "directory placeholders"
         if blob.name.endswith("/"):
             continue
@@ -153,11 +150,11 @@ st.caption(
 def download_and_zip_files(list_name: str) -> BytesIO:
     """Download files from GCS for a given list_name, zip them, and return as BytesIO."""
     client = get_gcs_client()
-    bucket = client.bucket("vr_mail_lists")
+    bucket = client.bucket(BUCKET_NAME)
     prefix = f"lists/{list_name}/"
     blobs = list(bucket.list_blobs(prefix=prefix))
     if not blobs:
-        raise FileNotFoundError(f"No files found under gs://vr_mail_lists/{prefix}")
+        raise FileNotFoundError(f"No files found under gs://{BUCKET_NAME}/{prefix}")
 
     zip_buffer = BytesIO()
     with zipfile.ZipFile(zip_buffer, "w") as zipf:
@@ -171,9 +168,9 @@ def download_and_zip_files(list_name: str) -> BytesIO:
 
 with st.expander("Saved Lists", expanded=True):
     try:
-        past_df = load_past_lists_gcs(GCS_BUCKET_SPEC)
+        past_df = load_past_lists_gcs(BUCKET_NAME + "/lists")
         if past_df.empty:
-            st.info("No lists found yet in gs://vr_mail_lists/lists/.")
+            st.info(f"No lists found yet in gs://{BUCKET_NAME}/lists/.")
         else:
             # Pagination setup
             items_per_page = 10
@@ -519,7 +516,7 @@ if submit_clicked:
         params=map_param_codes(params),  # pass human-readable params along
     )
     st.success(
-        f"List request **{safe_name}** submitted. You’ll see it appear in the Past lists table once your backend writes it to GCS."
+        f"List request **{safe_name}** submitted. You’ll see it appear in the 'Saved Lists' table above once it is ready (a few seconds typically)."
     )
     # Soft refresh of the cached listing
     load_past_lists_gcs.clear()

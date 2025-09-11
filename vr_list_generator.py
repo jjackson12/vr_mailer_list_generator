@@ -25,6 +25,7 @@ from google.cloud import bigquery
 import zipfile
 import os
 import requests
+from models import PersonList, SchemaFormat
 from config import (
     BUCKET_NAME,
     REVIEWER_EMAIL,
@@ -48,60 +49,15 @@ class VRMailListGenerator:
         self.buckets_client = storage.Client.from_service_account_json(
             BUCKETS_SERVICE_ACCOUNT_KEY
         )
+        self.PersonList = PersonList(bq_client=self.bq_client)
+        # TODO: Is the way the frontend is currently set up, is there ONLY one instance of the VRMailListGenerator? If they're being re-generated constantly, that would be maintaining many client connections, which is not ideal.
 
     def filter_voters(self, params: Dict[str, Any]) -> pd.DataFrame:
         """Filter voters by querying BigQuery based on search parameters."""
-        logger.info("Querying BigQuery for voter data")
-        # Remove parameters with empty lists or None values
-        params = {k: v for k, v in params.items() if v not in (None, [])}
 
-        # Base query
-        query = "SELECT * FROM `vr-mail-generator.voterfile.vf_nc_partial` WHERE 1=1"
-        # Mutate columns to match parameters
-        RENAME_MAP = {
-            "Party": "party_cd",
-            "Age": "age_at_year_end",
-            "Gender": "gender_code",
-            "Race": "race_code",
-            "Ethnicity": "ethnic_code",
-            "County": "county_desc",
-            "CongressionalDistrict": "cong_dist_abbrv",
-            "StateSenateDistrict": "nc_senate_abbrv",
-            "StateHouseDistrict": "nc_house_abbrv",
-        }
-        special_queries = {
-            "Age": lambda x: f" AND age_at_year_end BETWEEN {min(x)} AND {max(x)}"
-        }
-        int_fields = [
-            "StateSenateDistrict",
-            "StateHouseDistrict",
-            "CongressionalDistrict",
-        ]
-        # Add filters dynamically based on params
-        for key, value in params.items():
-            if value is not None:
-                param_db_name = RENAME_MAP[key]
-                if key in special_queries:
-                    query += special_queries[key](value)
-                else:
-                    if isinstance(value, list):
-                        if key in int_fields:
-                            value_list = ", ".join([str(int(v)) for v in value])
-                        else:
-                            value_list = ", ".join([f"'{v}'" for v in value])
-                        query += f" AND {param_db_name} IN ({value_list})"
-                    else:
-                        query += f" AND {param_db_name} = '{value}'"
-
-        logger.debug(f"Constructed query: {query}")
-
-        # Execute query
-        query_job = self.bq_client.query(query)
-        result = query_job.result()
-        df = result.to_dataframe()
-
-        logger.info(f"Query complete: rows fetched={len(df)}")
-        return df
+        # TODO: Should this be from_current_list? When yes and when no? Tbh I probably should always just say False and read right from BQ; this data isn't crazy large.
+        self.PersonList.filter_voters(params)  # , from_current_list=False)
+        return self.PersonList.get_person_list()
 
     def create_control_group(
         self, df: pd.DataFrame, size: int = None, stratify: List[str] = None
@@ -242,6 +198,8 @@ class VRMailListGenerator:
         unique_name = self.ensure_unique_request_name(bucket, cleaned_base)
         logger.info(f"Resolved unique request name='{unique_name}'")
         gcs_base_path = f"lists/{unique_name}"
+
+        # TODO: Update this logic to reference self.PersonList instead of re-defining it here
 
         list_df["Name"] = (
             list_df["first_name"].str.strip() + " " + list_df["last_name"].str.strip()

@@ -20,6 +20,10 @@ except Exception as _e:
     storage = None  # We'll show a friendly error if missing
 import zipfile
 from io import BytesIO
+import logging
+
+# TODO: Implement logging here
+logger = logging.getLogger(__name__)
 
 # =============== Config ===============
 # TODO: Could make the RCT part optional
@@ -93,6 +97,7 @@ def parse_csv_list(value: str) -> List[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+# TODO: Move this logic to models.PersonList
 def compute_households(df: pd.DataFrame) -> int:
     addr_cols = ["mail_addr1", "mail_addr2", "mail_city", "mail_state", "mail_zipcode"]
     for c in addr_cols:

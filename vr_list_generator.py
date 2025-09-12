@@ -201,6 +201,15 @@ class VRMailListGenerator:
 
         # TODO: Update this logic to reference self.PersonList instead of re-defining it here
 
+        # Send emails (include original and final names)
+        self.send_email(
+            subject=f"Mailer List Request Received: {request_name}",
+            body=(
+                f"Hi {requestor_name}, we received your request named: '{request_name}'.\n"
+            ),
+            to_emails=[requestor_email, REVIEWER_EMAIL],
+        )
+
         list_df["Name"] = (
             list_df["first_name"].str.strip() + " " + list_df["last_name"].str.strip()
         )
@@ -212,15 +221,6 @@ class VRMailListGenerator:
         list_df["MailingCity"] = list_df["mail_city"].str.strip()
         list_df["MailingState"] = list_df["mail_state"].str.strip()
         list_df["MailingZip"] = list_df["mail_zipcode"].astype(str).str.strip()
-
-        # Send emails (include original and final names)
-        self.send_email(
-            subject=f"Mailer List Request Received: {request_name}",
-            body=(
-                f"Hi {requestor_name}, we received your request named: '{request_name}'.\n"
-            ),
-            to_emails=[requestor_email, REVIEWER_EMAIL],
-        )
 
         # Get mailing addresses for output
         list_df = list_df[

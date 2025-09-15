@@ -40,6 +40,17 @@ logger = logging.getLogger(__name__)
 
 
 class VRMailListGenerator:
+    RENAME_MAP = {
+        "Party": "party_cd",
+        "Age": "age_at_year_end",
+        "Gender": "gender_code",
+        "Race": "race_code",
+        "Ethnicity": "ethnic_code",
+        "County": "county_desc",
+        "CongressionalDistrict": "cong_dist_abbrv",
+        "StateSenateDistrict": "nc_senate_abbrv",
+        "StateHouseDistrict": "nc_house_abbrv",
+    }
 
     def __init__(self):
         self.bq_client = bigquery.Client.from_service_account_json(
@@ -58,17 +69,7 @@ class VRMailListGenerator:
         # Base query
         query = "SELECT * FROM `vr-mail-generator.voterfile.vf_nc_partial` WHERE 1=1"
         # Mutate columns to match parameters
-        RENAME_MAP = {
-            "Party": "party_cd",
-            "Age": "age_at_year_end",
-            "Gender": "gender_code",
-            "Race": "race_code",
-            "Ethnicity": "ethnic_code",
-            "County": "county_desc",
-            "CongressionalDistrict": "cong_dist_abbrv",
-            "StateSenateDistrict": "nc_senate_abbrv",
-            "StateHouseDistrict": "nc_house_abbrv",
-        }
+
         special_queries = {
             "Age": lambda x: f" AND age_at_year_end BETWEEN {min(x)} AND {max(x)}"
         }
@@ -80,7 +81,7 @@ class VRMailListGenerator:
         # Add filters dynamically based on params
         for key, value in params.items():
             if value is not None:
-                param_db_name = RENAME_MAP[key]
+                param_db_name = self.RENAME_MAP[key]
                 if key in special_queries:
                     query += special_queries[key](value)
                 else:
@@ -105,12 +106,28 @@ class VRMailListGenerator:
 
     def get_invalid_targets(self, df):
         # TODO: Also use this to filter out addresses based on NCOA database
-        return df[
-            df["MailingAddress"].isnull()
-            | df["MailingCity"].isnull()
-            | df["MailingState"].isnull()
-            | df["MailingZip"].isnull()
-        ]
+        if "mail_addr1" in df.columns:
+            return df[
+                df["mail_addr1"].isnull()
+                | (df["mail_addr1"] == "")
+                | df["mail_city"].isnull()
+                | (df["mail_city"] == "")
+                | df["mail_state"].isnull()
+                | (df["mail_state"] == "")
+                | df["mail_zipcode"].isnull()
+                | (df["mail_zipcode"] == "")
+            ]
+        elif "MailingAddress" in df.columns:
+            return df[
+                df["MailingAddress"].isnull()
+                | (df["MailingAddress"] == "")
+                | df["MailingCity"].isnull()
+                | (df["MailingCity"] == "")
+                | df["MailingState"].isnull()
+                | (df["MailingState"] == "")
+                | df["MailingZip"].isnull()
+                | (df["MailingZip"] == "")
+            ]
 
     def create_control_group(
         self, df: pd.DataFrame, size: int = None, control_prop: float = 0.1
@@ -128,7 +145,8 @@ class VRMailListGenerator:
             if size is None
             else f"Creating random control group size={size}"
         )
-        control_group = df.sample(frac=control_prop)
+        control_prop_normalized = control_prop / 100.0
+        control_group = df.sample(frac=control_prop_normalized)
 
         logger.info(f"Control group rows={len(control_group)} (source rows={len(df)})")
 

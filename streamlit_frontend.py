@@ -111,6 +111,8 @@ def compute_households(df: pd.DataFrame) -> int:
 
 
 def ensure_list_name_safe(name: str) -> str:
+    if not name or name == "":
+        return None
     safe = "".join(
         ch if ch.isalnum() or ch in ("-", "_") else "-" for ch in name.strip()
     )
@@ -461,24 +463,14 @@ def map_param_codes(in_params):
     return params_codes
 
 
-# List name for submission
-list_name_input = st.text_input(
-    "List name (required to submit)", placeholder="e.g., denver-young-dems-2025-09-10"
-)
-
+st.divider()
 # Action buttons
-b1, b2 = st.columns([1, 2], gap="large")
-
-generate_clicked = b1.button("Generate counts", type="secondary")
-control_proportion_input = b2.number_input(
-    "Control group proportion (%)",
-    min_value=10.0,
-    max_value=50.0,
-    value=50.0,
-    step=1.0,
-    help="Specify the percentage of the sample in the control group (e.g., 50 for 50%, or 10% to send mail to 9 out of 10 people on this list and reserve the last 10% as a control group).",
+generate_clicked = st.button(
+    "Run List",
+    # type="primary",
+    help="Click to generate counts based on the selected criteria.",
+    key="blue_button",
 )
-submit_clicked = b2.button("Submit list request", type="primary")
 
 # Keep last results in session
 if "last_df" not in st.session_state:
@@ -512,104 +504,163 @@ if st.session_state.last_df is not None:
 
     with c3:
         try:
-            invalid_targets = len(generator.get_invalid_addresses(df))
+            invalid_targets = len(generator.get_invalid_targets(df))
             st.success(
                 f"**# people with missing or invalid addresses:** {invalid_targets}"
             )
         except Exception as e:
             st.error(f"Error calculating valid people: {e}")
 
+    st.divider()
+    st.subheader("List Details")
+    # st.caption(
+    #     "This will submit a request to generate the mailing list, which will then appear in the list at the top of the page for download"
+    # )
     categorical_columns = ["Race", "Ethnicity", "Gender", "Party"]
-    for col in categorical_columns:
-        if col in df.columns and not df[col].isna().all():
-            col_counts = df[col].value_counts()
-            fig = px.pie(
-                col_counts,
-                values=col_counts.values,
-                names=col_counts.index,
-                hole=0.4,
-                title=f"Distribution of {col}",
+    with st.expander("Show list breakdowns by subgroups", expanded=False):
+        pie_charts = []
+        for col in categorical_columns:
+            renamed_col = generator.RENAME_MAP[col]
+            if renamed_col in df.columns and not df[renamed_col].isna().all():
+                col_counts = df[renamed_col].value_counts()
+                color_map = {
+                    "DEM": "darkblue",
+                    "REP": "red",
+                    "UNA": "gray",
+                    "LIB": "gold",
+                    "GRE": "green",
+                    "OTH": "purple",
+                }
+                fig = px.pie(
+                    col_counts,
+                    values=col_counts.values,
+                    names=col_counts.index,
+                    hole=0.4,
+                    title=f"Distribution of {col}",
+                    color=col_counts.index,
+                    color_discrete_map=color_map if col == "Party" else None,
+                )
+                pie_charts.append(fig)
+            else:
+                st.warning(f"{col} column not found in results.")
+
+        # Display pie charts in a 2x2 grid
+        if pie_charts:
+            rows = (len(pie_charts) + 1) // 2
+            for i in range(rows):
+                cols = st.columns(2)
+                for j in range(2):
+                    idx = i * 2 + j
+                    if idx < len(pie_charts):
+                        with cols[j]:
+                            st.plotly_chart(pie_charts[idx], use_container_width=True)
+
+        renamed_age = generator.RENAME_MAP["Age"]
+        # Histogram for age
+        if renamed_age in df.columns and not df[renamed_age].isna().all():
+            df["age_bucket"] = pd.cut(
+                df[renamed_age],
+                bins=[18, 35, 50, 65, 100],
+                right=False,
+                labels=["18-34", "35-49", "50-64", "65+"],
+            )
+            age_counts = df["age_bucket"].value_counts().sort_index()
+            fig = px.bar(
+                age_counts,
+                x=age_counts.index.astype(str),
+                y=age_counts.values,
+                labels={"x": "Age Range", "y": "Count"},
+                title="Age Distribution",
             )
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.warning(f"{col} column not found in results.")
-
-    # Histogram for age
-    if "age" in df.columns and not df["age"].isna().all():
-        df["age_bucket"] = pd.cut(
-            df["age"],
-            bins=range(18, 101, 10),
-            right=False,
-            labels=[f"{i}-{i+10}" for i in range(18, 91, 10)],
-        )
-        age_counts = df["age_bucket"].value_counts().sort_index()
-        fig = px.bar(
-            age_counts,
-            x=age_counts.index.astype(str),
-            y=age_counts.values,
-            labels={"x": "Age Range", "y": "Count"},
-            title="Age Distribution",
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("Age column not found in results.")
+            st.warning("Age column not found in results.")
 
     with st.expander("Preview rows", expanded=False):
         st.dataframe(df.head(200), use_container_width=True)
-
-# ---------- Submit list request (no local writes) ----------
-if submit_clicked:
-    safe_name = ensure_list_name_safe(list_name_input)
-    if not safe_name:
-        st.error(
-            "Please provide a valid list name (letters, numbers, hyphens/underscores)."
+    st.divider()
+    st.subheader("RCT Control Grouping and Mailing List Generator")
+    st.caption(
+        "This will submit a request to generate the mailing list, which will then appear in the list at the top of the page for download"
+    )
+    with st.container():
+        # c1, c2, c3 = st.columns([3, 2])
+        # with c1:
+        control_proportion_input = st.number_input(
+            "Control group proportion (%)",
+            min_value=10.0,
+            max_value=50.0,
+            value=50.0,
+            step=1.0,
+            help="Specify the percentage of the sample in the control group (e.g., 50 for 50%, or 10% to send mail to 9 out of 10 people on this list and reserve the last 10% as a control group).",
         )
-        st.stop()
+        # with c2:
 
-    # Ensure we have data to submit
-    if st.session_state.last_df is None:
-        try:
-            st.session_state.last_df = filter_voters(map_param_codes(params))
-            st.session_state.last_params_codes = map_param_codes(params)
-        except Exception as e:
-            st.error(f"Could not generate data for submission: {e}")
+        # List name for submission
+        list_name_input = st.text_input(
+            "List name (required to submit)",
+            placeholder="e.g., denver-young-dems-2025-09-10",
+        )
+        # with c3:
+        submit_clicked = st.button(
+            "Generate RCT groups and Mailing List", type="primary"
+        )
+    # ---------- Submit list request (no local writes) ----------
+    if submit_clicked:
+        safe_name = ensure_list_name_safe(list_name_input)
+        if not safe_name:
+            st.error(
+                "Please provide a valid list name (letters, numbers, hyphens/underscores)."
+            )
             st.stop()
 
-    subgroup_variables = [
-        var
-        for var, prepare in [
-            ("Race", prepare_race_subgroup),
-            ("Ethnicity", prepare_ethnicity_subgroup),
-            ("Gender", prepare_gender_subgroup),
-            ("Age", prepare_age_subgroup),
-        ]
-        if prepare
-    ]
-    # try:
-    generator.generate_rct_mailing_list(
-        list_df=st.session_state.last_df,
-        requestor_email=st.session_state.user_info["email"],
-        requestor_name=st.session_state.user_info["name"],
-        request_name=safe_name,
-        params=map_param_codes(params),
-        control_proportion=control_proportion_input,
-    )
-    st.success(
-        f"List request **{safe_name}** submitted. You’ll see it appear in the 'Saved Lists' table above once it is ready (a few seconds typically)."
-    )
-    # Soft refresh of the cached listing
-    load_past_lists_gcs.clear()
-    # except NameError:
-    #     st.error(
-    #         "`generate_rct_mailing_list` is not defined/imported in this app. "
-    #         "Import it or ensure it’s on PYTHONPATH."
-    #     )
-    # except Exception as e:
-    #     st.error(f"Failed to submit list request: {e}")
-    # Power analysis section
-    st.markdown("---")
-    st.subheader("Power Analysis")
+        # Ensure we have data to submit
+        if st.session_state.last_df is None:
+            try:
+                st.session_state.last_df = filter_voters(map_param_codes(params))
+                st.session_state.last_params_codes = map_param_codes(params)
+            except Exception as e:
+                st.error(f"Could not generate data for submission: {e}")
+                st.stop()
 
+        subgroup_variables = [
+            var
+            for var, prepare in [
+                ("Race", prepare_race_subgroup),
+                ("Ethnicity", prepare_ethnicity_subgroup),
+                ("Gender", prepare_gender_subgroup),
+                ("Age", prepare_age_subgroup),
+            ]
+            if prepare
+        ]
+        # try:
+        generator.generate_rct_mailing_list(
+            list_df=st.session_state.last_df,
+            requestor_email=st.session_state.user_info["email"],
+            requestor_name=st.session_state.user_info["name"],
+            request_name=safe_name,
+            params=map_param_codes(params),
+            control_prop=control_proportion_input,
+        )
+        st.success(
+            f"List request **{safe_name}** submitted. You’ll see it appear in the 'Saved Lists' table above once it is ready (a few seconds typically)."
+        )
+        # Soft refresh of the cached listing
+        load_past_lists_gcs.clear()
+        # except NameError:
+        #     st.error(
+        #         "`generate_rct_mailing_list` is not defined/imported in this app. "
+        #         "Import it or ensure it’s on PYTHONPATH."
+        #     )
+        # except Exception as e:
+        #     st.error(f"Failed to submit list request: {e}")
+# Power analysis section
+st.markdown("---")
+st.subheader("Power Analysis")
+
+if st.session_state.last_df is None:
+    st.info("Generate a list first to enable power analysis for subgroups.")
+else:
     # Input fields for power analysis
     baseline_rate = st.number_input(
         "Expected baseline rate (e.g., % who will register to vote without receiving mail)",
@@ -632,10 +683,10 @@ if submit_clicked:
     )
 
     min_lift = st.number_input(
-        "Minimum detectable percentage points (pp) 'lift' (e.g., 1%)",
+        "Minimum detectable percentage points (pp) 'lift' (e.g., 1%). Higher lift = smaller required sample size",
         min_value=0.1,
         max_value=100.0,
-        value=1.0,
+        value=5.0,
         step=0.1,
         format="%.1f",
         help="Enter the minimum detectable lift as a percentage (e.g., 1 for 1%).",
@@ -672,16 +723,46 @@ if submit_clicked:
                 f"(Control: {int(round(n_control, -2)):,}, Treatment: {int(round(n_treat, -2)):,})"
             )
 
+            # Display current list sample size
+            current_sample_size = len(df)
+            if current_sample_size >= N_total:
+                st.success(
+                    f"**Current list sample size:** {current_sample_size:,} (Meets or exceeds required sample size)"
+                )
+            else:
+                st.error(
+                    f"**Current list sample size:** {current_sample_size:,} (Below required sample size)"
+                )
+
             # Subgroup analysis
             # TODO: I might need to call generate_counts here if last_df is empty?
             if st.session_state.last_df is not None:
                 df = st.session_state.last_df
                 # TODO: This should reference input variables for subgroup analysis
-                subgroup_variables = ["Race", "Ethnicity", "Gender", "Age"]
+                subgroup_variables = [
+                    var
+                    for var, prepare in [
+                        ("Race", prepare_race_subgroup),
+                        ("Ethnicity", prepare_ethnicity_subgroup),
+                        ("Gender", prepare_gender_subgroup),
+                        ("Age", prepare_age_subgroup),
+                    ]
+                    if prepare
+                ]
+                # TODO: Age into buckets
                 for subgroup in subgroup_variables:
-                    if subgroup in df.columns:
+                    renamed_var = generator.RENAME_MAP[subgroup]
+                    if renamed_var in df.columns:
+                        if subgroup == "Age":
+                            df["age_bucket"] = pd.cut(
+                                df[renamed_var],
+                                bins=[18, 35, 50, 65, 100],
+                                right=False,
+                                labels=["18-34", "35-49", "50-64", "65+"],
+                            )
+                            renamed_var = "age_bucket"
                         st.subheader(f"Subgroup: {subgroup}")
-                        subgroup_counts = df[subgroup].value_counts().reset_index()
+                        subgroup_counts = df[renamed_var].value_counts().reset_index()
                         subgroup_counts.columns = [subgroup, "Sample Size"]
                         subgroup_counts = subgroup_counts.sort_values(
                             "Sample Size", ascending=False
@@ -699,6 +780,7 @@ if submit_clicked:
                                 highlight_row, axis=1, subset=["Sample Size"]
                             ),
                             use_container_width=True,
+                            hide_index=True,
                         )
         except Exception as e:
             st.error(f"Error performing power analysis: {e}")

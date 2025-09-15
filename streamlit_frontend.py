@@ -25,6 +25,8 @@ from pytz import timezone as pytz_timezone
 # =============== Config ===============
 # TODO: Could make the RCT part optional
 st.set_page_config(page_title="Mailer RCT list generator", layout="wide")
+generator = VRMailListGenerator()
+
 
 # =============== Helper functions ===============
 
@@ -111,7 +113,7 @@ def ensure_list_name_safe(name: str) -> str:
 
 
 def filter_voters(params: Dict[str, Any]) -> pd.DataFrame:
-    list_generator = VRMailListGenerator()
+    list_generator = generator
     return list_generator.filter_voters(params)
 
 
@@ -474,7 +476,23 @@ if st.session_state.last_df is not None:
     people = int(len(df))
     households = compute_households(df)
 
-    st.success(f"**# people:** {people:,}   •   **# households:** {households:,}")
+    # st.success(f"**# people:** {people}   •   **# households (with valid addresses):** {households:,}")
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.success(f"**# people:** {people}")
+
+    with c2:
+        st.success(f"**# households (with valid addresses):** {households:,}")
+
+    with c3:
+        try:
+            invalid_targets = len(generator.get_invalid_addresses(df))
+            st.success(
+                f"**# people with missing or invalid addresses:** {invalid_targets}"
+            )
+        except Exception as e:
+            st.error(f"Error calculating valid people: {e}")
 
     # Optional stats dropdown
     stat_choice = st.selectbox(
@@ -509,7 +527,6 @@ if submit_clicked:
             st.stop()
 
     # try:
-    generator = VRMailListGenerator()
     generator.generate_rct_mailing_list(
         list_df=st.session_state.last_df,
         requestor_email=st.session_state.user_info["email"],

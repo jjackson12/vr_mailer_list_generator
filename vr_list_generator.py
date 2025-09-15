@@ -103,11 +103,26 @@ class VRMailListGenerator:
         logger.info(f"Query complete: rows fetched={len(df)}")
         return df
 
+    def get_invalid_targets(self, df):
+        # TODO: Also use this to filter out addresses based on NCOA database
+        return df[
+            df["MailingAddress"].isnull()
+            | df["MailingCity"].isnull()
+            | df["MailingState"].isnull()
+            | df["MailingZip"].isnull()
+        ]
+
     def create_control_group(
         self, df: pd.DataFrame, size: int = None, stratify: List[str] = None
     ):
-        """Create a random or stratified control group and return both control and treatment groups."""
+        """Create a random or stratified control group and return both control and treatment groups. First filter out invalid targets (no mailing address)"""
         # TODO: Test stratification. Also consider when we'd want to oversample on subgroups, but this would require adjusting the end result analysis as well, so that's a more complex workflow I don't want to try to account for in this yet
+
+        # Filter out voters with no full mailing address
+        invalid_targets = self.get_invalid_targets(df)
+        df = df.drop(invalid_targets.index)
+        logger.info(f"Filtered out invalid targets: {len(invalid_targets)} rows")
+
         if stratify:
             logger.info(f"Creating stratified control group on {stratify}")
             # Stratified sampling (naive)
@@ -130,7 +145,7 @@ class VRMailListGenerator:
         treatment_group = df.drop(control_group.index)
         logger.info(f"Treatment group rows={len(treatment_group)}")
 
-        return control_group, treatment_group
+        return control_group, treatment_group, invalid_targets
 
     def upload_to_gcs(self, file_path: str, bucket_name: str, dest_blob_name: str):
         """Upload file to Google Cloud Storage bucket."""
@@ -279,7 +294,11 @@ class VRMailListGenerator:
         ]
         logger.info(f"Total target group rows={len(list_df)}")
         # Create control group
-        control_group, treatment_group = self.create_control_group(list_df)
+        control_group, treatment_group, invalid_targets = self.create_control_group(
+            list_df
+        )
+        logger.info(f"# INVALID targets rows={len(invalid_targets)}")
+
         logger.info(f"Control mailing rows={len(control_group)}")
         logger.info(f"Treatment mailing rows={len(treatment_group)}")
         # Group treatment list by household

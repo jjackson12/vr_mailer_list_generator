@@ -10,27 +10,25 @@ Assumes voter registration & mailing data in 'nc_vf_partial.csv'.
 """
 
 import pandas as pd
+
+from email.message import EmailMessage
 import random
 import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
 
 from google.cloud import storage
 from typing import List, Dict, Any
 import re
 import logging
 from google.cloud import bigquery
-import zipfile
-import os
 import requests
+import json
 from config import (
     BUCKET_NAME,
     REVIEWER_EMAIL,
     BUCKETS_SERVICE_ACCOUNT_KEY,
     BIGQUERY_SERVICE_ACCOUNT_KEY,
     MAILSEND_ACCESS_TOKEN,
+    GMAIL_ACCESS_TOKEN,
 )
 
 logging.basicConfig(
@@ -116,14 +114,20 @@ class VRMailListGenerator:
         ncoa_vr_ids = set(result.to_dataframe()["vr_program_id"])
 
         logger.info(f"Fetched {len(ncoa_vr_ids)} NCOA records with status 'H'")
-        filtered_df = df[df["vr_program_id"].isin(ncoa_vr_ids)]
+        if "vr_program_id" in df.columns:
+            filtered_df = df[df["vr_program_id"].isin(ncoa_vr_ids)]
+        else:
+            filtered_df = df[df["Program ID"].isin(ncoa_vr_ids)]
         return filtered_df
 
     def get_invalid_targets(self, df):
         # TODO: Also use this to filter out addresses based on NCOA database
         ncoa_invalid = self.get_invalid_addresses_referencing_NCOA(df)
         logger.info(f"NCOA invalid addresses: {len(ncoa_invalid)} rows")
-        df = df[~df["vr_program_id"].isin(ncoa_invalid["vr_program_id"])]
+        if "vr_program_id" in df.columns:
+            df = df[~df["vr_program_id"].isin(ncoa_invalid["vr_program_id"])]
+        else:
+            df = df[~df["Program ID"].isin(ncoa_invalid["Program ID"])]
         logger.info(f"After NCOA filtering: {len(df)} rows remain")
         if "mail_addr1" in df.columns:
             return df[
@@ -184,7 +188,10 @@ class VRMailListGenerator:
         logger.info(f"Uploaded {file_path} -> gs://{bucket_name}/{dest_blob_name}")
 
     def email_completed_list(self, to_emails: List[str], list_name: str):
-        subject = "Mailing List Completed: " + list_name
+        subject = (
+            "(Jake Jackson's Mail RCT List Generator) Mailing List Completed: "
+            + list_name
+        )
         # Attach the zip file to the email
         self.send_email(
             subject=subject,
@@ -195,13 +202,12 @@ class VRMailListGenerator:
     def send_email(
         self, subject: str, body: str, to_emails: List[str], attachments_filepaths=None
     ):
-        """Send an email notification using MailerSend API."""
+        """Send an email notification using Gmail API."""
 
-        url = "https://api.mailersend.com/v1/email"
-        headers = {
-            "Authorization": f"Bearer {MAILSEND_ACCESS_TOKEN}",
-            "Content-Type": "application/json",
-        }
+        with open(GMAIL_ACCESS_TOKEN, "r") as f:
+            creds = json.load(f)
+        SENDER = creds["name"]
+        APP_PASSWORD = creds["pw"]
 
         # Prepare the email data
         email_data = {
@@ -213,30 +219,18 @@ class VRMailListGenerator:
             "subject": subject,
             "text": body,
         }
+        msg = EmailMessage()
+        msg["From"] = SENDER
+        msg["To"] = ", ".join(to_emails)
+        msg["Subject"] = subject
+        msg.set_content(body)
 
-        # # Add attachments if provided
-        # if attachments_filepaths:
-        #     email_data["attachments"] = []
-        #     for attachment_fp in attachments_filepaths:
-        #         with open(attachment_fp, "rb") as attachment:
-        #             encoded_file = encoders.encode_base64(attachment.read())
-        #             email_data["attachments"].append(
-        #                 {
-        #                     "content": encoded_file.decode("utf-8"),
-        #                     "filename": os.path.basename(attachment_fp),
-        #                 }
-        #             )
-
-        # # Send the email via MailerSend API
-        # response = requests.post(url, headers=headers, json=email_data)
-
-        # if response.status_code == 202:
-        #     logger.info(f"Email sent successfully to {to_emails}: {subject}")
-        # else:
-        #     logger.error(
-        #         f"Failed to send email. Status code: {response.status_code}, Response: {response.text}"
-        #     )
-        #     raise Exception(f"Email sending failed: {response.text}")
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.ehlo()
+            smtp.login(SENDER, APP_PASSWORD)
+            smtp.send_message(msg)
 
     def clean_request_name(self, raw: str) -> str:
         """Produce a filesystem / GCS safe base name."""
@@ -301,14 +295,14 @@ class VRMailListGenerator:
 
         list_df["Program ID"] = list_df["vr_program_id"]
 
-        # Send emails (include original and final names)
-        self.send_email(
-            subject=f"Mailer List Request Received: {request_name}",
-            body=(
-                f"Hi {requestor_name}, we received your request named: '{request_name}'.\n"
-            ),
-            to_emails=[requestor_email, REVIEWER_EMAIL],
-        )
+        # # Send emails (include original and final names)
+        # self.send_email(
+        #     subject=f"Mailer List Request Received: {request_name}",
+        #     body=(
+        #         f"Hi {requestor_name}, we received your request named: '{request_name}'.\n"
+        #     ),
+        #     to_emails=[requestor_email],
+        # )
 
         # Get mailing addresses for output
         list_df = list_df[
@@ -378,9 +372,7 @@ class VRMailListGenerator:
 
         final_name = unique_name
 
-        self.email_completed_list(
-            to_emails=[requestor_email, REVIEWER_EMAIL], list_name=final_name
-        )
+        self.email_completed_list(to_emails=[requestor_email], list_name=final_name)
         logger.info("Notification emails processed")
         logger.info("Request completed successfully")
 

@@ -152,7 +152,7 @@ if not st.session_state.user_info.get("name") or not st.session_state.user_info.
     st.stop()
 
 # =============== Main App =================
-st.title("Voter List Builder")
+st.title("Mailer RCT List Generator")
 st.caption(
     f"Signed in as **{st.session_state.user_info['name']}** • {st.session_state.user_info['email']}"
 )
@@ -581,7 +581,7 @@ if st.session_state.last_df is not None:
     st.divider()
     st.subheader("RCT Control Grouping and Mailing List Generator")
     st.caption(
-        "This will submit a request to generate the mailing list, which will then appear in the list at the top of the page for download"
+        "This will submit a request to generate a randomized control group, then a mailing list of the treatment group aggregated to the household level. These lists will then appear in the list at the top of the page for download"
     )
     with st.container():
         # c1, c2, c3 = st.columns([3, 2])

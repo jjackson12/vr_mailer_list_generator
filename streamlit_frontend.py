@@ -21,6 +21,8 @@ except Exception as _e:
 import zipfile
 from io import BytesIO
 from pytz import timezone as pytz_timezone
+from statsmodels.stats.power import NormalIndPower
+from statsmodels.stats.proportion import proportion_effectsize
 
 # =============== Config ===============
 # TODO: Could make the RCT part optional
@@ -568,7 +570,102 @@ if submit_clicked:
     #     )
     # except Exception as e:
     #     st.error(f"Failed to submit list request: {e}")
+    # Power analysis section
+    st.markdown("---")
+    st.subheader("Power Analysis")
 
+    # Input fields for power analysis
+    baseline_rate = st.number_input(
+        "Expected baseline rate (e.g., % who will register to vote without receiving mail)",
+        min_value=0.0,
+        max_value=100.0,
+        value=10.0,
+        step=0.1,
+        format="%.1f",
+        help="Enter the baseline rate as a percentage (e.g., 10 for 10%).",
+    )
+
+    control_proportion = st.number_input(
+        "% of sample size in control group",
+        min_value=10.0,
+        max_value=90.0,
+        value=50.0,
+        step=0.1,
+        format="%.1f",
+        help="Enter the percentage of the sample in the control group (e.g., 50 for 50%).",
+    )
+
+    min_lift = st.number_input(
+        "Minimum detectable percentage points (pp) 'lift' (e.g., 1%)",
+        min_value=0.1,
+        max_value=100.0,
+        value=1.0,
+        step=0.1,
+        format="%.1f",
+        help="Enter the minimum detectable lift as a percentage (e.g., 1 for 1%).",
+    )
+
+    if st.button(
+        "Generate power analysis for total population + subgroups of interest"
+    ):
+        try:
+            # Convert percentages to proportions
+            p_baseline_control = baseline_rate / 100
+            min_abs_lift = min_lift / 100
+            p_treat = p_baseline_control + min_abs_lift
+            control_proportion = control_proportion / 100
+            ratio = (1 - control_proportion) / control_proportion  # n_treat / n_control
+
+            # Calculate effect size and required sample size
+            h = proportion_effectsize(p_baseline_control, p_treat)  # Cohen's h
+            analysis = NormalIndPower()
+            n_control = analysis.solve_power(
+                effect_size=h,
+                alpha=0.05,
+                power=0.80,
+                ratio=ratio,
+                alternative="two-sided",
+            )
+            n_treat = ratio * n_control
+            N_total = n_control + n_treat
+
+            # Display required sample size
+            st.success(
+                f"**Approximate required sample size:** {int(round(N_total, -2)):,} "
+                f"(Control: {int(round(n_control, -2)):,}, Treatment: {int(round(n_treat, -2)):,})"
+            )
+
+            # Subgroup analysis
+            # TODO: I might need to call generate_counts here if last_df is empty?
+            if st.session_state.last_df is not None:
+                df = st.session_state.last_df
+                # TODO: This should reference input variables for subgroup analysis
+                # TODO: Also, how does the stratification work when of course these variables overlap??? My naive implementation definitely needs to be changed
+                subgroup_variables = ["Race", "Ethnicity", "Gender", "Age"]
+                for subgroup in subgroup_variables:
+                    if subgroup in df.columns:
+                        st.subheader(f"Subgroup: {subgroup}")
+                        subgroup_counts = df[subgroup].value_counts().reset_index()
+                        subgroup_counts.columns = [subgroup, "Sample Size"]
+                        subgroup_counts = subgroup_counts.sort_values(
+                            "Sample Size", ascending=False
+                        )
+
+                        # Highlight rows based on sample size
+                        def highlight_row(row):
+                            if row["Sample Size"] >= N_total:
+                                return ["background-color: lightgreen"] * len(row)
+                            else:
+                                return ["background-color: lightcoral"] * len(row)
+
+                        st.dataframe(
+                            subgroup_counts.style.apply(
+                                highlight_row, axis=1, subset=["Sample Size"]
+                            ),
+                            use_container_width=True,
+                        )
+        except Exception as e:
+            st.error(f"Error performing power analysis: {e}")
 # =============== Footer ===============
 st.markdown("---")
 # st.caption(

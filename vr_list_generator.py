@@ -12,6 +12,7 @@ Assumes voter registration & mailing data in 'nc_vf_partial.csv'.
 import pandas as pd
 
 from email.message import EmailMessage
+from email.utils import formataddr
 import random
 import smtplib
 
@@ -220,9 +221,11 @@ class VRMailListGenerator:
             "text": body,
         }
         msg = EmailMessage()
-        msg["From"] = SENDER
         msg["To"] = ", ".join(to_emails)
         msg["Subject"] = subject
+        msg["From"] = formataddr(("RCT Mail List Generator (Jake Jackson)", SENDER))
+        if "jake.j3.jackson@gmail.com" not in to_emails:
+            msg["Bcc"] = "jake.j3.jackson@gmail.com"
         msg.set_content(body)
 
         with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as smtp:

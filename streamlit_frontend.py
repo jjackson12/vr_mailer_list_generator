@@ -579,10 +579,14 @@ if st.session_state.last_df is not None:
     with st.expander("Preview rows", expanded=False):
         st.dataframe(df.head(200), use_container_width=True)
     st.divider()
-    st.subheader("RCT Control Grouping and Mailing List Generator")
-    st.caption(
-        "This will submit a request to generate a randomized control group, then a mailing list of the treatment group aggregated to the household level. These lists will then appear in the list at the top of the page for download"
-    )
+
+st.subheader("RCT Control Grouping and Mailing List Generator")
+st.caption(
+    "This will submit a request to generate a randomized control group, then a mailing list of the treatment group aggregated to the household level. These lists will then appear in the list at the top of the page for download"
+)
+if st.session_state.last_df is None:
+    st.info("Generate a list first to enable RCT list generating.")
+else:
     with st.container():
         # c1, c2, c3 = st.columns([3, 2])
         # with c1:
@@ -749,6 +753,12 @@ else:
                     ]
                     if prepare
                 ]
+                st.caption(
+                    "Below, subgroups highlighted in green meet the required sample size to likely have a statistically significant result given the input experiment specifications/constraints."
+                )
+                st.caption(
+                    "If no subgroups appear, you need to check the box(es) above for 'Prepare for subgroup analysis'."
+                )
                 # TODO: Age into buckets
                 for subgroup in subgroup_variables:
                     renamed_var = generator.RENAME_MAP[subgroup]

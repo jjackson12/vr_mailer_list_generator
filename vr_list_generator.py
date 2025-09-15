@@ -113,7 +113,7 @@ class VRMailListGenerator:
         ]
 
     def create_control_group(
-        self, df: pd.DataFrame, size: int = None, stratify: List[str] = None
+        self, df: pd.DataFrame, size: int = None, control_prop: float = 0.1
     ):
         """Create a random or stratified control group and return both control and treatment groups. First filter out invalid targets (no mailing address)"""
         # TODO: Test stratification. Also consider when we'd want to oversample on subgroups, but this would require adjusting the end result analysis as well, so that's a more complex workflow I don't want to try to account for in this yet
@@ -123,21 +123,12 @@ class VRMailListGenerator:
         df = df.drop(invalid_targets.index)
         logger.info(f"Filtered out invalid targets: {len(invalid_targets)} rows")
 
-        if stratify:
-            logger.info(f"Creating stratified control group on {stratify}")
-            # Stratified sampling (naive)
-            control_group = df.groupby(stratify, group_keys=False).apply(
-                lambda x: x.sample(frac=0.1)
-            )
-        else:
-            logger.info(
-                "Creating random control group (10% default)"
-                if size is None
-                else f"Creating random control group size={size}"
-            )
-            # Truly random sample (10% default)
-            frac = 0.1 if size is None else min(size / len(df), 1)
-            control_group = df.sample(frac=frac)
+        logger.info(
+            "Creating random control group (10% default)"
+            if size is None
+            else f"Creating random control group size={size}"
+        )
+        control_group = df.sample(frac=control_prop)
 
         logger.info(f"Control group rows={len(control_group)} (source rows={len(df)})")
 
@@ -241,7 +232,7 @@ class VRMailListGenerator:
         requestor_name: str,
         request_name: str,
         params=None,
-        stratification_vars: List[str] = None,
+        control_prop: float = 0.5,
     ):
         logger.info(f"Request started for list size {len(list_df)}")
         if params:
@@ -296,7 +287,7 @@ class VRMailListGenerator:
         logger.info(f"Total target group rows={len(list_df)}")
         # Create control group
         control_group, treatment_group, invalid_targets = self.create_control_group(
-            list_df, stratify=stratification_vars
+            list_df, control_prop=control_prop
         )
         logger.info(f"# INVALID targets rows={len(invalid_targets)}")
 

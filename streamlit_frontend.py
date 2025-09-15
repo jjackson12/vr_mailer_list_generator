@@ -21,6 +21,8 @@ except Exception as _e:
 import zipfile
 from io import BytesIO
 from pytz import timezone as pytz_timezone
+
+# TODO: Move this statistical analysis implementation to vr_list_generator.py
 from statsmodels.stats.power import NormalIndPower
 from statsmodels.stats.proportion import proportion_effectsize
 
@@ -465,7 +467,16 @@ list_name_input = st.text_input(
 
 # Action buttons
 b1, b2 = st.columns([1, 2], gap="large")
+
 generate_clicked = b1.button("Generate counts", type="secondary")
+control_proportion_input = b2.number_input(
+    "Control group proportion (%)",
+    min_value=10.0,
+    max_value=50.0,
+    value=50.0,
+    step=1.0,
+    help="Specify the percentage of the sample in the control group (e.g., 50 for 50%, or 10% to send mail to 9 out of 10 people on this list and reserve the last 10% as a control group).",
+)
 submit_clicked = b2.button("Submit list request", type="primary")
 
 # Keep last results in session
@@ -556,7 +567,7 @@ if submit_clicked:
         requestor_name=st.session_state.user_info["name"],
         request_name=safe_name,
         params=map_param_codes(params),
-        stratification_vars=subgroup_variables,
+        control_proportion=control_proportion,
     )
     st.success(
         f"List request **{safe_name}** submitted. You’ll see it appear in the 'Saved Lists' table above once it is ready (a few seconds typically)."
@@ -614,6 +625,7 @@ if submit_clicked:
             min_abs_lift = min_lift / 100
             p_treat = p_baseline_control + min_abs_lift
             control_proportion = control_proportion / 100
+            # TODO: This needs to reference the real breakdowns for the subgroups, since it's randomized
             ratio = (1 - control_proportion) / control_proportion  # n_treat / n_control
 
             # Calculate effect size and required sample size
@@ -640,7 +652,6 @@ if submit_clicked:
             if st.session_state.last_df is not None:
                 df = st.session_state.last_df
                 # TODO: This should reference input variables for subgroup analysis
-                # TODO: Also, how does the stratification work when of course these variables overlap??? My naive implementation definitely needs to be changed
                 subgroup_variables = ["Race", "Ethnicity", "Gender", "Age"]
                 for subgroup in subgroup_variables:
                     if subgroup in df.columns:

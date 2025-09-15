@@ -10,6 +10,7 @@ import numpy as np
 import streamlit as st
 from config import BUCKETS_SERVICE_ACCOUNT_KEY, BUCKET_NAME
 
+import plotly.express as px
 from vr_list_generator import VRMailListGenerator
 
 # GCS
@@ -44,7 +45,7 @@ def parse_bucket_spec(spec: str) -> str:
     return name
 
 
-def get_gcs_client() -> storage.Client:
+def get_gcs_client() -> storage.Client:  # type: ignore
     """Create a GCS client from a keyfile path in BUCKETS_SERVICE_ACCOUNT_KEY env var."""
     key_path = BUCKETS_SERVICE_ACCOUNT_KEY
     if not key_path:
@@ -518,16 +519,40 @@ if st.session_state.last_df is not None:
         except Exception as e:
             st.error(f"Error calculating valid people: {e}")
 
-    # Optional stats dropdown
-    stat_choice = st.selectbox(
-        "Optional statistics", options=["None", "Median age"], index=0
-    )
-    if stat_choice == "Median age":
-        if "age" in df.columns and not df["age"].isna().all():
-            median_age = int(float(df["age"].median()))
-            st.info(f"**Median age:** {median_age}")
+    categorical_columns = ["Race", "Ethnicity", "Gender", "Party"]
+    for col in categorical_columns:
+        if col in df.columns and not df[col].isna().all():
+            col_counts = df[col].value_counts()
+            fig = px.pie(
+                col_counts,
+                values=col_counts.values,
+                names=col_counts.index,
+                hole=0.4,
+                title=f"Distribution of {col}",
+            )
+            st.plotly_chart(fig, use_container_width=True)
         else:
-            st.warning("Age column not found in results.")
+            st.warning(f"{col} column not found in results.")
+
+    # Histogram for age
+    if "age" in df.columns and not df["age"].isna().all():
+        df["age_bucket"] = pd.cut(
+            df["age"],
+            bins=range(18, 101, 10),
+            right=False,
+            labels=[f"{i}-{i+10}" for i in range(18, 91, 10)],
+        )
+        age_counts = df["age_bucket"].value_counts().sort_index()
+        fig = px.bar(
+            age_counts,
+            x=age_counts.index.astype(str),
+            y=age_counts.values,
+            labels={"x": "Age Range", "y": "Count"},
+            title="Age Distribution",
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("Age column not found in results.")
 
     with st.expander("Preview rows", expanded=False):
         st.dataframe(df.head(200), use_container_width=True)

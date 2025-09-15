@@ -126,9 +126,9 @@ class VRMailListGenerator:
         ncoa_invalid = self.get_invalid_addresses_referencing_NCOA(df)
         logger.info(f"NCOA invalid addresses: {len(ncoa_invalid)} rows")
         if "vr_program_id" in df.columns:
-            df = df[~df["vr_program_id"].isin(ncoa_invalid["vr_program_id"])]
+            df["ncoa_invalid"] = df["vr_program_id"].isin(ncoa_invalid["vr_program_id"])
         else:
-            df = df[~df["Program ID"].isin(ncoa_invalid["Program ID"])]
+            df["ncoa_invalid"] = df["Program ID"].isin(ncoa_invalid["Program ID"])
         logger.info(f"After NCOA filtering: {len(df)} rows remain")
         if "mail_addr1" in df.columns:
             return df[
@@ -140,6 +140,7 @@ class VRMailListGenerator:
                 | (df["mail_state"] == "")
                 | df["mail_zipcode"].isnull()
                 | (df["mail_zipcode"] == "")
+                | df["ncoa_invalid"]
             ]
         elif "MailingAddress" in df.columns:
             return df[
@@ -151,6 +152,7 @@ class VRMailListGenerator:
                 | (df["MailingState"] == "")
                 | df["MailingZip"].isnull()
                 | (df["MailingZip"] == "")
+                | df["ncoa_invalid"]
             ]
 
     def create_control_group(

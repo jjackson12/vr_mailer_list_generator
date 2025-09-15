@@ -504,9 +504,14 @@ if st.session_state.last_df is not None:
 
     with c3:
         try:
-            invalid_targets = len(generator.get_invalid_targets(df))
+            invalid_targets = len(
+                generator.get_invalid_targets(st.session_state.last_df)
+            )
             st.success(
                 f"**# people with missing or invalid addresses:** {invalid_targets}"
+            )
+            st.caption(
+                "Invalid addresses are referenced from NCOA data sourced from TrueNCOA."
             )
         except Exception as e:
             st.error(f"Error calculating valid people: {e}")

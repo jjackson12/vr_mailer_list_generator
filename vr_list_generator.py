@@ -241,6 +241,7 @@ class VRMailListGenerator:
         requestor_name: str,
         request_name: str,
         params=None,
+        stratification_vars: List[str] = None,
     ):
         logger.info(f"Request started for list size {len(list_df)}")
         if params:
@@ -295,7 +296,7 @@ class VRMailListGenerator:
         logger.info(f"Total target group rows={len(list_df)}")
         # Create control group
         control_group, treatment_group, invalid_targets = self.create_control_group(
-            list_df
+            list_df, stratify=stratification_vars
         )
         logger.info(f"# INVALID targets rows={len(invalid_targets)}")
 

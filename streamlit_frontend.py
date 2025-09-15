@@ -250,9 +250,8 @@ st.markdown("---")
 # ---------- Search Criteria ----------
 st.subheader("Search criteria")
 st.caption(
-    "NOTE: Currently, this is referencing only the voters in Yadkin County, North Carolina"
+    "NOTE: Currently, this is referencing only the voters in Yadkin County, North Carolina. Note that this is REAL and PUBLIC data, collected from the North Carolina State Board of Elections, available here: https://dl.ncsbe.gov/"
 )
-
 
 c1, c2 = st.columns([3, 2], gap="large")
 with c1:
@@ -372,13 +371,22 @@ with c1:
         "Race",
         options=["White", "Black", "Asian", "Native American", "Other", "Unknown"],
     )
+    prepare_race_subgroup = st.checkbox(
+        "Prepare for subgroup analysis", key="race_subgroup"
+    )
     ethnicity = st.multiselect(
         "Ethnicity",
         options=["Hispanic/Latino", "Non-Hispanic", "Unknown"],
     )
+    prepare_ethnicity_subgroup = st.checkbox(
+        "Prepare for subgroup analysis", key="ethnicity_subgroup"
+    )
     gender = st.multiselect(
         "Gender",
         options=["Male", "Female", "Undesignated"],
+    )
+    prepare_gender_subgroup = st.checkbox(
+        "Prepare for subgroup analysis", key="gender_subgroup"
     )
 with c2:
     age_min, age_max = st.slider(
@@ -388,6 +396,9 @@ with c2:
         value=(18, 100),
         step=1,
         help="Inclusive bounds",
+    )
+    prepare_age_subgroup = st.checkbox(
+        "Prepare for subgroup analysis", key="age_subgroup"
     )
     st.write("**Districts**")
     state_house = st.multiselect("State House", options=list(range(1, 78)))
@@ -526,13 +537,24 @@ if submit_clicked:
             st.error(f"Could not generate data for submission: {e}")
             st.stop()
 
+    subgroup_variables = [
+        var
+        for var, prepare in [
+            ("Race", prepare_race_subgroup),
+            ("Ethnicity", prepare_ethnicity_subgroup),
+            ("Gender", prepare_gender_subgroup),
+            ("Age", prepare_age_subgroup),
+        ]
+        if prepare
+    ]
     # try:
     generator.generate_rct_mailing_list(
         list_df=st.session_state.last_df,
         requestor_email=st.session_state.user_info["email"],
         requestor_name=st.session_state.user_info["name"],
         request_name=safe_name,
-        params=map_param_codes(params),  # pass human-readable params along
+        params=map_param_codes(params),
+        stratification_vars=subgroup_variables,
     )
     st.success(
         f"List request **{safe_name}** submitted. You’ll see it appear in the 'Saved Lists' table above once it is ready (a few seconds typically)."

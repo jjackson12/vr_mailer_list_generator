@@ -255,6 +255,8 @@ class VRMailListGenerator:
         list_df["MailingState"] = list_df["mail_state"].str.strip()
         list_df["MailingZip"] = list_df["mail_zipcode"].astype(str).str.strip()
 
+        list_df["Program ID"] = list_df["vr_program_id"]
+
         # Send emails (include original and final names)
         self.send_email(
             subject=f"Mailer List Request Received: {request_name}",
@@ -266,7 +268,14 @@ class VRMailListGenerator:
 
         # Get mailing addresses for output
         list_df = list_df[
-            ["Name", "MailingAddress", "MailingCity", "MailingState", "MailingZip"]
+            [
+                "Name",
+                "Program ID",
+                "MailingAddress",
+                "MailingCity",
+                "MailingState",
+                "MailingZip",
+            ]
         ]
         logger.info(f"Total target group rows={len(list_df)}")
         # Create control group
@@ -278,7 +287,12 @@ class VRMailListGenerator:
             treatment_group.groupby(
                 ["MailingAddress", "MailingCity", "MailingState", "MailingZip"]
             )
-            .agg({"Name": lambda x: "Household of " + " and ".join(x)})
+            .agg(
+                {
+                    "Name": lambda x: " and ".join(x) if len(x) > 1 else x.iloc[0],
+                    "Program ID": lambda x: ", ".join(x),
+                }
+            )
             .reset_index()
         )
 
@@ -287,7 +301,12 @@ class VRMailListGenerator:
             control_group.groupby(
                 ["MailingAddress", "MailingCity", "MailingState", "MailingZip"]
             )
-            .agg({"Name": lambda x: "Household of " + " and ".join(x)})
+            .agg(
+                {
+                    "Name": lambda x: " and ".join(x) if len(x) > 1 else x.iloc[0],
+                    "Program ID": lambda x: ", ".join(x),
+                }
+            )
             .reset_index()
         )
 

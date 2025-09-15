@@ -104,8 +104,27 @@ class VRMailListGenerator:
         logger.info(f"Query complete: rows fetched={len(df)}")
         return df
 
+    def get_invalid_addresses_referencing_NCOA(self, df):
+        logger.info("Querying BigQuery for NCOA address statuses")
+        query = """
+            SELECT vr_program_id
+            FROM `vr-mail-generator.vr_data.ncoa_address_statuses`
+            WHERE ncoa_status = 'H'
+        """
+        query_job = self.bq_client.query(query)
+        result = query_job.result()
+        ncoa_vr_ids = set(result.to_dataframe()["vr_program_id"])
+
+        logger.info(f"Fetched {len(ncoa_vr_ids)} NCOA records with status 'H'")
+        filtered_df = df[df["vr_program_id"].isin(ncoa_vr_ids)]
+        return filtered_df
+
     def get_invalid_targets(self, df):
         # TODO: Also use this to filter out addresses based on NCOA database
+        ncoa_invalid = self.get_invalid_addresses_referencing_NCOA(df)
+        logger.info(f"NCOA invalid addresses: {len(ncoa_invalid)} rows")
+        df = df[~df["vr_program_id"].isin(ncoa_invalid["vr_program_id"])]
+        logger.info(f"After NCOA filtering: {len(df)} rows remain")
         if "mail_addr1" in df.columns:
             return df[
                 df["mail_addr1"].isnull()

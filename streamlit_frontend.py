@@ -2,7 +2,7 @@
 from __future__ import annotations
 import os
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Tuple
 
 import pandas as pd
@@ -20,6 +20,7 @@ except Exception as _e:
     storage = None  # We'll show a friendly error if missing
 import zipfile
 from io import BytesIO
+from pytz import timezone as pytz_timezone
 
 # =============== Config ===============
 # TODO: Could make the RCT part optional
@@ -74,11 +75,12 @@ def load_past_lists_gcs(spec: str) -> pd.DataFrame:
             blob.time_created,
             blob.updated,
         )
+    ny_tz = pytz_timezone("America/New_York")
     list_df = pd.DataFrame(
         [
             {
                 "list_name": l,
-                "created_at": c.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+                "created_at": c.astimezone(ny_tz).strftime("%Y-%m-%d %H:%M %Z"),
             }
             for l, c in lists_data.items()
         ]

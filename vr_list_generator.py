@@ -171,18 +171,18 @@ class VRMailListGenerator:
             "text": body,
         }
 
-        # Add attachments if provided
-        if attachments_filepaths:
-            email_data["attachments"] = []
-            for attachment_fp in attachments_filepaths:
-                with open(attachment_fp, "rb") as attachment:
-                    encoded_file = encoders.encode_base64(attachment.read())
-                    email_data["attachments"].append(
-                        {
-                            "content": encoded_file.decode("utf-8"),
-                            "filename": os.path.basename(attachment_fp),
-                        }
-                    )
+        # # Add attachments if provided
+        # if attachments_filepaths:
+        #     email_data["attachments"] = []
+        #     for attachment_fp in attachments_filepaths:
+        #         with open(attachment_fp, "rb") as attachment:
+        #             encoded_file = encoders.encode_base64(attachment.read())
+        #             email_data["attachments"].append(
+        #                 {
+        #                     "content": encoded_file.decode("utf-8"),
+        #                     "filename": os.path.basename(attachment_fp),
+        #                 }
+        #             )
 
         # # Send the email via MailerSend API
         # response = requests.post(url, headers=headers, json=email_data)

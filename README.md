@@ -14,6 +14,8 @@ This data is REAL and PUBLIC data sourced from the North Carolina State Board of
 
 In the `scripts` subdirectory are basic python scripts I used to collect this data.
 
+Also, I created a separate project to maintain a database of NCOA records that this app references to filter out addresses from output lists that have been marked as outdated. The project references the TrueNCOA API service. See that project here: https://github.com/jjackson12/ncoa-database-manager
+
 ### RCT Mailing List Generator
 This generates a random sampling of people from the searched list to be a control group. This also creates four CSV files saved to Google Cloud Storage and available for download in the interface: person lists for both the treatment and control groups, and mailing lists (person lists aggregated to the household level) for both the treatment and control groups.
 

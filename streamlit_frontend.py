@@ -567,7 +567,7 @@ if submit_clicked:
         requestor_name=st.session_state.user_info["name"],
         request_name=safe_name,
         params=map_param_codes(params),
-        control_proportion=control_proportion,
+        control_proportion=control_proportion_input,
     )
     st.success(
         f"List request **{safe_name}** submitted. You’ll see it appear in the 'Saved Lists' table above once it is ready (a few seconds typically)."

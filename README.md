@@ -26,7 +26,17 @@ This uses the `statsmodels` package to conduct [Statistical Power evaluations fo
 **The short answer is "not very." I consider this somewhere past proof-of-concept but short of production ready.** The primary reason for that is a lack of proper testing. That would be necessary for long-term maintenance and also would most likely bring up some bugs for edge cases. Even somewhat basic things like retries-handling on API services used is not included. I also would want peer review of the statistical methods applied to the Power Analysis. There are certainly also more features one might want in a real-world application of this, such as multi-step searches, a proper review system for the data team to have a backend view on this, orchestration of the list generation process were it to become more complex, and so on. On a related note, [the NCOA database manager](https://github.com/jjackson12/ncoa-database-manager) is the furthest from production in that it is not yet orchestrated to run on something like Airflow to run regularly + by API request from this app. Another useful next step for this app would be to document/build the Google Cloud infrastructure using Terraform, and to properly dockerize the app as well.
 
 ## Development
-When debugging the Streamlit app, if using VSCode, add this to your configuration:
+
+You will need to create a file `.streamlit/secrets.toml` to store credentials for the Google BigQuery, Google Cloud Storage, and GMail API. If you wanted to rebuild this from scratch, you could copy my process loosely documented in `scripts/` to scrape your own voter file data from the NCBoE then create your own cloud infrastructure for the project.
+
+After that, create a basic virtual environment and install requirements:
+```
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+When debugging the Streamlit app, if using VSCode, add this to your configuration to run the debugger:
 ```
         {
             "name": "Python:Streamlit",

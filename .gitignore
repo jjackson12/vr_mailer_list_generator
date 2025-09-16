@@ -7,3 +7,4 @@ venv
 mailsend_access_token.txt
 *.zip
 test_bq.py
+.streamlit/

@@ -15,6 +15,7 @@ from email.message import EmailMessage
 from email.utils import formataddr
 import random
 import smtplib
+import streamlit as st
 
 from google.cloud import storage
 from typing import List, Dict, Any
@@ -23,14 +24,11 @@ import logging
 from google.cloud import bigquery
 import requests
 import json
-from config import (
-    BUCKET_NAME,
-    REVIEWER_EMAIL,
-    BUCKETS_SERVICE_ACCOUNT_KEY,
-    BIGQUERY_SERVICE_ACCOUNT_KEY,
-    MAILSEND_ACCESS_TOKEN,
-    GMAIL_ACCESS_TOKEN,
-)
+from config import BUCKET_NAME
+
+buckets_creds = json.loads(st.secrets["BUCKETS_SERVICE_ACCOUNT_KEY"])
+bq_creds = json.loads(st.secrets["BIGQUERY_SERVICE_ACCOUNT_KEY"])
+gmail_creds = json.loads(st.secrets["GMAIL_ACCESS_TOKEN"])
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
@@ -52,12 +50,8 @@ class VRMailListGenerator:
     }
 
     def __init__(self):
-        self.bq_client = bigquery.Client.from_service_account_json(
-            BIGQUERY_SERVICE_ACCOUNT_KEY
-        )
-        self.buckets_client = storage.Client.from_service_account_json(
-            BUCKETS_SERVICE_ACCOUNT_KEY
-        )
+        self.bq_client = bigquery.Client.from_service_account_info(bq_creds)
+        self.buckets_client = storage.Client.from_service_account_info(buckets_creds)
 
     def filter_voters(self, params: Dict[str, Any]) -> pd.DataFrame:
         """Filter voters by querying BigQuery based on search parameters."""
@@ -207,10 +201,8 @@ class VRMailListGenerator:
     ):
         """Send an email notification using Gmail API."""
 
-        with open(GMAIL_ACCESS_TOKEN, "r") as f:
-            creds = json.load(f)
-        SENDER = creds["name"]
-        APP_PASSWORD = creds["pw"]
+        SENDER = gmail_creds["name"]
+        APP_PASSWORD = gmail_creds["pw"]
 
         # Prepare the email data
         email_data = {

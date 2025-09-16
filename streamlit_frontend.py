@@ -8,7 +8,8 @@ from typing import Dict, Any, List, Tuple
 import pandas as pd
 import numpy as np
 import streamlit as st
-from config import BUCKETS_SERVICE_ACCOUNT_KEY, BUCKET_NAME
+import json
+from config import BUCKET_NAME
 
 import plotly.express as px
 from vr_list_generator import VRMailListGenerator
@@ -30,6 +31,9 @@ from statsmodels.stats.proportion import proportion_effectsize
 # =============== Config ===============
 # TODO: Could make the RCT part optional
 st.set_page_config(page_title="Mailer RCT list generator", layout="wide")
+
+buckets_creds = json.loads(st.secrets["BUCKETS_SERVICE_ACCOUNT_KEY"])
+
 generator = VRMailListGenerator()
 
 
@@ -46,23 +50,16 @@ def parse_bucket_spec(spec: str) -> str:
 
 
 def get_gcs_client() -> storage.Client:  # type: ignore
-    """Create a GCS client from a keyfile path in BUCKETS_SERVICE_ACCOUNT_KEY env var."""
-    key_path = BUCKETS_SERVICE_ACCOUNT_KEY
-    if not key_path:
-        st.error(
-            "Environment variable BUCKETS_SERVICE_ACCOUNT_KEY is not set. "
-            "Set it to the JSON key filepath for your service account."
-        )
-        st.stop()
-    if not os.path.exists(key_path):
-        st.error(f"Service account key file not found at: {key_path}")
+    """Create a GCS client from BUCKETS_SERVICE_ACCOUNT_KEY."""
+    if not buckets_creds:
+        st.error("BUCKETS_SERVICE_ACCOUNT_KEY is missing from Streamlit secrets.")
         st.stop()
     if storage is None:
         st.error(
             "google-cloud-storage is not installed. Run `pip install google-cloud-storage`."
         )
         st.stop()
-    return storage.Client.from_service_account_json(key_path)
+    return storage.Client.from_service_account_info(buckets_creds)
 
 
 @st.cache_data(show_spinner=False, ttl=120)

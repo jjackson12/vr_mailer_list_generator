@@ -54,3 +54,6 @@ When debugging the Streamlit app, if using VSCode, add this to your configuratio
             ]
         }
 ```
+
+## Note on Usage of AI
+I used Github Copilot significantly in building this app.

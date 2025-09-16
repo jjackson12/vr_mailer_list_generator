@@ -192,7 +192,7 @@ class VRMailListGenerator:
         # Attach the zip file to the email
         self.send_email(
             subject=subject,
-            body=f"The mailing list '{list_name}' can now be downloaded from the Mailer generator app.",
+            body=f"The mailing list '{list_name}' can now be downloaded from the Mailer generator app at https://rct-mail-list-generator-jake-jackson.streamlit.app/.",
             to_emails=to_emails,
         )
 

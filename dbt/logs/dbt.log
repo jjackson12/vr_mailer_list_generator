@@ -1,0 +1,29 @@
+Installing dbt project and profile setup
+Info Created .vscode/extensions.json with dbt extension recommendation
+Success Project created successfully!
+Info Project name: NC_VF_Analytics
+Info Project directory: NC_VF_Analytics
+Info Setting up your profile...
+Info Creating new profile...
+No dbt_cloud.yml found - proceeding without cloud pre-population
+Success Profile written to /Users/jacobjackson/.dbt/profiles.yml
+Validating profile inputs, adapters, and connection
+
+dbt-fusion 2.0.0-preview.7
+   Loading ~/.dbt/profiles.yml
+ Debugging profile: dev
+ Debugging dbt version: 2.0.0-preview.7
+ Debugging platform: macos aarch64 (unix)
+ Debugging adapter type: bigquery (remote)
+ Debugging dependencies:
+  git: OK
+ Debugging connection:
+  "method": "service-account",
+  "schema": "voterfile_derived",
+  "location": "US",
+  "dataproc_batch": null,
+  "database": "vr-mail-generator"
+ Debugging connection test: OK
+  Debugged All checks passed!
+  Finished 'init' target 'dev' in 3s 532ms
+New version available 2.0.0-preview.22 (run `dbt system update`)

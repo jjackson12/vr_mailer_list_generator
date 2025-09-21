@@ -13,8 +13,25 @@ import os
 import sys
 import zipfile
 from urllib.request import urlopen
+from google.cloud import bigquery
 
-URL = "https://s3.amazonaws.com/dl.ncsbe.gov/data/ncvoter99.zip"
+bq_creds = "../vr-mail-generator-8e97a63564fe.json"
+bq_client = bigquery.Client.from_service_account_json(bq_creds)
+
+
+def county_id_from_num(num: int) -> str:
+    if num == 100:
+        return "00"
+    else:
+        return str(num)
+
+
+url_list = [
+    f"https://s3.amazonaws.com/dl.ncsbe.gov/data/ncvoter{county_id_from_num(num)}.zip"
+    for num in range(0, 100)
+]
+
+
 OUTPUT_CSV = "nc_vf_partial.csv"
 
 # Candidate inner-file extensions we consider as tabular
@@ -69,11 +86,11 @@ def stream_zip_bytes(url: str) -> bytes:
         return b"".join(chunks)
 
 
-def main():
+def collect_upload_countyvf(url, create_table=False):
     # 1) Download the ZIP file into memory (you can switch to disk if desired)
-    print(f"Downloading: {URL}")
+    print(f"Downloading: {url}")
     try:
-        zip_bytes = stream_zip_bytes(URL)
+        zip_bytes = stream_zip_bytes(url)
     except Exception as e:
         print(f"ERROR: failed to download: {e}", file=sys.stderr)
         sys.exit(1)
@@ -101,75 +118,92 @@ def main():
     for m in members:
         print(f"  - {m.filename}  ({m.file_size:,} bytes)")
 
-    # 3) Open output CSV
-    out_path = os.path.abspath(OUTPUT_CSV)
-    wrote_header = False
-    total_rows = 0
+    if len(members) > 1:
+        print("ERROR: Found multiple files in zip, should only be one", file=sys.stderr)
+        sys.exit(1)
 
-    with open(out_path, "w", newline="", encoding="utf-8") as fout:
-        writer = None
+    table_id = "vr-mail-generator.voterfile.vf_nc_full"
 
-        for mem in members:
-            if mem.is_dir():
+    for mem in members:
+        if mem.is_dir():
+            continue
+
+        print(f"\nProcessing: {mem.filename}")
+        with zf.open(mem, "r") as raw:
+            # Peek some bytes to sniff delimiter reliably
+            peek = raw.read(1024 * 64)
+            raw_stream = io.BytesIO(peek + raw.read())  # recompose
+
+            # Wrap as text stream
+            text_stream = io.TextIOWrapper(
+                raw_stream, encoding="utf-8", errors="replace", newline=""
+            )
+
+            # Detect dialect and reset reader to start
+            dialect = sniff_dialect(peek)
+            text_stream.seek(0)
+
+            reader = csv.reader(text_stream, dialect=dialect)
+
+            # Read header
+            try:
+                header = next(reader)
+            except StopIteration:
+                print("  (empty file, skipping)")
                 continue
 
-            print(f"\nProcessing: {mem.filename}")
-            with zf.open(mem, "r") as raw:
-                # Peek some bytes to sniff delimiter reliably
-                peek = raw.read(1024 * 64)
-                raw_stream = io.BytesIO(peek + raw.read())  # recompose
+            # Remove BOM if present
+            if header and header[0].startswith("\ufeff"):
+                header[0] = header[0].lstrip("\ufeff")
 
-                # Wrap as text stream
-                text_stream = io.TextIOWrapper(
-                    raw_stream, encoding="utf-8", errors="replace", newline=""
-                )
-
-                # Detect dialect and reset reader to start
-                dialect = sniff_dialect(peek)
-                text_stream.seek(0)
-
-                reader = csv.reader(text_stream, dialect=dialect)
-
-                # Read header
+            # Create table if not exists
+            if create_table:
+                # Infer schema: all columns as STRING
+                schema = [bigquery.SchemaField(col.strip(), "STRING") for col in header]
                 try:
-                    header = next(reader)
-                except StopIteration:
-                    print("  (empty file, skipping)")
-                    continue
+                    bq_client.get_table(table_id)
+                    print(f"BigQuery table {table_id} already exists.")
+                except Exception:
+                    table = bigquery.Table(table_id, schema=schema)
+                    table = bq_client.create_table(table)
+                    print(f"Created BigQuery table {table_id}.")
 
-                # Initialize writer with normalized CSV excel dialect
-                if writer is None:
-                    writer = csv.writer(
-                        fout, lineterminator="\n", quoting=csv.QUOTE_MINIMAL
-                    )
-                # Write header once (normalized to strings stripped of BOM)
-                if not wrote_header:
-                    if header and header[0].startswith("\ufeff"):
-                        header[0] = header[0].lstrip("\ufeff")
-                    writer.writerow(header)
-                    wrote_header = True
-                else:
-                    # If subsequent files have a header, skip writing it
-                    # Optionally, you could verify the header matches.
-                    pass
+            # Prepare rows for BigQuery
+            rows_to_insert = []
+            row_count = 0
+            for row in reader:
+                # Ensure row length matches header by padding/truncating
+                if len(row) < len(header):
+                    row = row + [""] * (len(header) - len(row))
+                elif len(row) > len(header):
+                    row = row[: len(header)]
+                rows_to_insert.append(dict(zip(header, row)))
+                row_count += 1
 
-                # Stream rows
-                row_count = 0
-                for row in reader:
-                    # Ensure row length matches header by padding/truncating
-                    if len(row) < len(header):
-                        row = row + [""] * (len(header) - len(row))
-                    elif len(row) > len(header):
-                        row = row[: len(header)]
-                    writer.writerow(row)
-                    row_count += 1
+                # Insert in batches of 10,000 for efficiency
+                if len(rows_to_insert) >= 10000:
+                    errors = bq_client.insert_rows_json(table_id, rows_to_insert)
+                    if errors:
+                        print(f"BigQuery insert errors: {errors}", file=sys.stderr)
+                    rows_to_insert = []
 
-                total_rows += row_count
-                print(f"  Wrote {row_count:,} data rows from {mem.filename}")
+            # Insert any remaining rows
+            if rows_to_insert:
+                errors = bq_client.insert_rows_json(table_id, rows_to_insert)
+                if errors:
+                    print(f"BigQuery insert errors: {errors}", file=sys.stderr)
 
-    print(f"\nDone. Output: {out_path}")
-    print(f"Total data rows written (excluding header): {total_rows:,}")
+            print(
+                f"  Inserted {row_count:,} data rows from {mem.filename} into BigQuery"
+            )
+
+    print(f"\nDone. Data loaded to BigQuery table: {table_id}")
 
 
 if __name__ == "__main__":
-    main()
+    create_table = True
+    for url in url_list:
+        if create_table:
+            collect_upload_countyvf(url, create_table=True)
+        else:
+            collect_upload_countyvf(url, create_table=False)

@@ -1,0 +1,7 @@
+version: 2
+sources:
+  - name: voterfile
+    tables:
+      - name: pres24_vote_totals
+      - name: results_pct_20241105
+      - name: vf_nc_partial

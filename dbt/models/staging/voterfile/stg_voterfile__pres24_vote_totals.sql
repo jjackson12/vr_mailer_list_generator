@@ -11,9 +11,9 @@ renamed as (
     select
         county,
         precinct,
-        'total votes' as total_votes,
+        `total votes` as total_votes,
         choice,
-        'choice party' as choice_party
+        `choice party` as choice_party
 
     from source
 

@@ -1,7 +1,11 @@
-# version: 2
+version: 2
 
-# models:
-#   - name: mart_pres_24_vote_margins
-#     description: "Dem 24 pres vote margin (as decimal) aggregated to each precinct/county pair in NC"
-#     columns:
-      
+models:
+  - name: mart_pres_24_vote_margins
+    description: "Dem 24 pres vote margin (as decimal) aggregated to each precinct/county pair in NC"
+    columns:
+      - name: dem_margin
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: ">= -1.0"

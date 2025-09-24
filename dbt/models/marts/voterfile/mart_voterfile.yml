@@ -1,0 +1,7 @@
+# version: 2
+
+# models:
+#   - name: mart_pres_24_vote_margins
+#     description: "Dem 24 pres vote margin (as decimal) aggregated to each precinct/county pair in NC"
+#     columns:
+      

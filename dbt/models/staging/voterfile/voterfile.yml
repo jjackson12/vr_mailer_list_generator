@@ -1,0 +1,11 @@
+version: 2
+
+models:
+  - name: stg_voterfile__pres24_vote_totals
+    columns:
+      - name: total_votes
+        description: total vote count in that county-precinct for given candidate in given election
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "total_votes >= 0"

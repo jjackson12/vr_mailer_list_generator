@@ -11,7 +11,7 @@ renamed as (
     select
         county,
         precinct,
-        `total votes` as total_votes,
+        cast(`total votes` as int) as total_votes,
         choice,
         `choice party` as choice_party
 

@@ -53,10 +53,19 @@ def generate_outcomes(
         behavior_rate = BASE_BEHAVIOR_RATE + treatment_lift
     else:
         behavior_rate = BASE_BEHAVIOR_RATE
-
-    df["behavior"] = df.apply(
-        lambda row: 1 if random.random() < behavior_rate else 0, axis=1
-    )
+    # Block randomization: assign behavior based on blocks of similar size
+    block_size = 100
+    num_rows = len(df)
+    behaviors = []
+    for i in range(0, num_rows, block_size):
+        block_end = min(i + block_size, num_rows)
+        block = df.iloc[i:block_end]
+        # Calculate number of positive outcomes in this block
+        num_positive = int(round(behavior_rate * len(block)))
+        block_behaviors = [1] * num_positive + [0] * (len(block) - num_positive)
+        random.shuffle(block_behaviors)
+        behaviors.extend(block_behaviors)
+    df["behavior"] = behaviors
     return df
 
 

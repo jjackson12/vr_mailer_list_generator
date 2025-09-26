@@ -47,7 +47,7 @@ for subfolder in os.listdir(base_dir):
         )
         if control_pct is not None and treatment_pct is not None:
             diff = treatment_pct - control_pct
-            print(f"  Difference (Treatment - Control): {diff:.2f}%")
+            print(f"  Difference (Treatment - Control): {diff:.2f}")
         else:
             print("  Difference (Treatment - Control): N/A")
         print(

@@ -214,18 +214,23 @@ with st.expander("Saved Lists", expanded=True):
 
             # Display pagination info at the bottom
             st.write(f"Page {current_page} of {total_pages}")
-            current_page = st.number_input(
+            new_page = st.number_input(
                 "Page",
                 min_value=1,
                 max_value=total_pages,
                 value=current_page,
                 step=1,
-                key="pagination_input",
+                key="pagination_input_widget",
             )
+            if new_page != current_page:
+                st.session_state["pagination_input"] = new_page
+                st.rerun()
     except Exception as e:
         st.error(f"Error loading past lists from GCS: {e}")
         st.button(
-            "Refresh list", on_click=lambda: load_past_lists_gcs.clear()
+            "Refresh list",
+            on_click=lambda: load_past_lists_gcs.clear(),
+            key="top_page_list_refresh",
         )  # clears cache
     # Add a "Refresh Lists" button at the bottom
     if st.button("Refresh Lists"):
@@ -796,6 +801,122 @@ else:
                         )
         except Exception as e:
             st.error(f"Error performing power analysis: {e}")
+
+st.markdown("---")
+st.subheader("Generate & Measure Experiment Results")
+
+
+with st.expander("Experiment Lists", expanded=True):
+    try:
+        past_df = load_past_lists_gcs(BUCKET_NAME + "/lists")
+        if past_df.empty:
+            st.info(f"No lists found yet in gs://{BUCKET_NAME}/lists/.")
+        else:
+            # Pagination setup
+            items_per_page = 10
+            total_items = len(past_df)
+            total_pages = (total_items + items_per_page - 1) // items_per_page
+            current_results_page_num = st.session_state.get(
+                "results_pagination_page_num", 1
+            )
+
+            # Calculate start and end indices for the current page
+            start_idx = (current_results_page_num - 1) * items_per_page
+            end_idx = start_idx + items_per_page
+            page_results_df = past_df.iloc[start_idx:end_idx]
+
+            for _, row in page_results_df.iterrows():
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.write(f"**{row['list_name']}**")
+                    st.caption(
+                        f"Created at: {row['created_at']}"
+                    )  # Use caption for smaller text
+                with col2:
+                    # Check if "sample_results" subdirectory exists for this list
+                    client = get_gcs_client()
+                    bucket = client.bucket(BUCKET_NAME)
+                    sample_results_prefix = f"lists/{row['list_name']}/sample_results/"
+                    sample_results_blobs = list(
+                        bucket.list_blobs(prefix=sample_results_prefix)
+                    )
+                    if any(
+                        blob.name.startswith(sample_results_prefix)
+                        for blob in sample_results_blobs
+                    ):
+                        # If sample_results exists, show "Analyze Experimental Results" button
+                        if st.button(
+                            "Analyze Experimental Results",
+                            key=f"analyze_{row['list_name']}",
+                            type="primary",
+                        ):
+                            st.success(
+                                f"Experimental results for **{row['list_name']}** will be analyzed here."
+                            )
+                            st.text_area(
+                                "Results Output",
+                                value=f"Analysis for {row['list_name']} would appear here.",
+                                height=150,
+                                key=f"results_output_{row['list_name']}",
+                            )
+                    else:
+                        # If not, show "Generate sample results" button with optional inputs
+                        with st.form(f"generate_results_form_{row['list_name']}"):
+                            base_rate = st.number_input(
+                                "Base rate (%)",
+                                min_value=0.0,
+                                max_value=100.0,
+                                value=30.0,
+                                step=1.0,
+                                format="%.1f",
+                                key=f"base_rate_{row['list_name']}",
+                                help="Generate results with a specified base rate (e.g., % who will register to vote without mail)",
+                            )
+                            lift = st.number_input(
+                                "Lift (%)",
+                                min_value=0.0,
+                                max_value=100.0,
+                                value=5.0,
+                                step=0.1,
+                                format="%.1f",
+                                key=f"lift_{row['list_name']}",
+                                help="Generate results with a specified lift",
+                            )
+                            submit_results = st.form_submit_button(
+                                "Generate sample results (can only be done once per list)",
+                                type="primary",
+                            )
+                        if submit_results:
+                            # Placeholder for run_results function
+                            st.info(
+                                f"Would run `run_results('{row['list_name']}', base_rate={base_rate}, lift={lift})`"
+                            )
+
+            # Display pagination info at the bottom
+            st.write(f"Page {current_results_page_num} of {total_pages}")
+            new_results_page_num = st.number_input(
+                "Page",
+                min_value=1,
+                max_value=total_pages,
+                value=current_results_page_num,
+                step=1,
+                key="results_pagination_page_num",
+            )
+            if new_results_page_num != current_results_page_num:
+                st.session_state["results_pagination_page_num"] = new_results_page_num
+                st.rerun()
+    except Exception as e:
+        st.error(f"Error loading past lists from GCS: {e}")
+        st.button(
+            "Refresh list",
+            on_click=lambda: load_past_lists_gcs.clear(),
+            key="analyze_section_lists_refresh_onerror",
+        )  # clears cache
+    # Add a "Refresh Lists" button at the bottom
+    if st.button("Refresh Lists", key="analyze_section_lists_refresh"):
+        load_past_lists_gcs.clear()
+        st.rerun()
+
 # =============== Footer ===============
 st.markdown("---")
 # st.caption(

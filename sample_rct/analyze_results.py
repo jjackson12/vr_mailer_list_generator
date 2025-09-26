@@ -2,19 +2,29 @@ import pandas as pd
 import numpy as np
 from scipy.stats import norm
 
+from streamlit.logger import get_logger
+from io import StringIO
+
+logger = get_logger(__name__)
+
 
 def analyze_results(bucket_client, list_name_input, alpha=0.05):
     experiment_dir = f"lists/{list_name_input}/sample_results"
     control_path = f"{experiment_dir}/generated_control.csv"
     treatment_path = f"{experiment_dir}/generated_treatment.csv"
 
-    # Read CSVs from the "vr_mail_lists" bucket using the provided client
-    control_df = pd.read_csv(
-        bucket_client.download_as_bytes("vr_mail_lists", control_path)
-    )
-    treatment_df = pd.read_csv(
-        bucket_client.download_as_bytes("vr_mail_lists", treatment_path)
-    )
+    # Access the bucket and blobs
+    bucket = bucket_client.bucket("vr_mail_lists")
+    control_blob = bucket.blob(control_path)
+    treatment_blob = bucket.blob(treatment_path)
+
+    # Download CSV data as text
+    control_csv = control_blob.download_as_text()
+    treatment_csv = treatment_blob.download_as_text()
+
+    # Read into DataFrames
+    control_df = pd.read_csv(StringIO(control_csv))
+    treatment_df = pd.read_csv(StringIO(treatment_csv))
 
     def ab_test(x_t, n_t, x_c, n_c, alpha=0.05):
         p_t, p_c = x_t / n_t, x_c / n_c

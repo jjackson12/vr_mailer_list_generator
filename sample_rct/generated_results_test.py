@@ -2,6 +2,10 @@ import csv
 import json
 from google.cloud import storage
 
+from streamlit.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 def analyze_list_from_gcs(list_name, client):
     """

@@ -4,6 +4,10 @@ import io
 import random
 import os
 import json
+import logging
+from streamlit.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class RCTResultGenerator:
@@ -11,15 +15,13 @@ class RCTResultGenerator:
         self,
         list_name: str,
         base_behavior_rate: float,
-        lift_range: tuple,
-        gcp_json_path: str,
         bucket_client: storage.Client,
+        lift_range: tuple = (0, 0.05),
     ):
         self.list_name = list_name
         self.experiment_id = list_name
         self.base_behavior_rate = base_behavior_rate
         self.lift_range = lift_range
-        self.gcp_json_path = gcp_json_path
 
         self.client = bucket_client
         self.bucket_name = "vr_mail_lists"
@@ -56,7 +58,7 @@ class RCTResultGenerator:
             "treatment_lift": treatment_lift,
             "base_behavior_rate": self.base_behavior_rate,
         }
-        json_blob_path = f"{self.list_name}/sample_results/treatment_lift.json"
+        json_blob_path = f"lists/{self.list_name}/sample_results/treatment_lift.json"
         self._upload_json(json_data, json_blob_path)
         return treatment_lift
 
@@ -87,13 +89,17 @@ class RCTResultGenerator:
         generated_treatment = self.generate_outcomes(
             self.treatment_df, treatment=True, treatment_lift=treatment_lift
         )
-        control_blob_path = f"{self.list_name}/sample_results/generated_control.csv"
-        treatment_blob_path = f"{self.list_name}/sample_results/generated_treatment.csv"
+        control_blob_path = (
+            f"lists/{self.list_name}/sample_results/generated_control.csv"
+        )
+        treatment_blob_path = (
+            f"lists/{self.list_name}/sample_results/generated_treatment.csv"
+        )
         self._upload_csv(generated_control, control_blob_path)
         self._upload_csv(generated_treatment, treatment_blob_path)
-        print(
+        logger.info(
             f"Generated control group results uploaded to gs://{self.bucket_name}/{control_blob_path}"
         )
-        print(
+        logger.info(
             f"Generated treatment group results uploaded to gs://{self.bucket_name}/{treatment_blob_path}"
         )

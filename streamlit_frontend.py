@@ -11,6 +11,9 @@ import streamlit as st
 import json
 from config import BUCKET_NAME
 
+from sample_rct.generate_results import RCTResultGenerator
+from sample_rct.analyze_results import analyze_results
+
 import plotly.express as px
 from vr_list_generator import VRMailListGenerator
 
@@ -27,6 +30,7 @@ from pytz import timezone as pytz_timezone
 # TODO: Move this statistical analysis implementation to vr_list_generator.py
 from statsmodels.stats.power import NormalIndPower
 from statsmodels.stats.proportion import proportion_effectsize
+from sample_rct.generate_results import RCTResultGenerator
 
 # =============== Config ===============
 # TODO: Could make the RCT part optional
@@ -69,8 +73,8 @@ def load_past_lists_gcs(spec: str) -> pd.DataFrame:
     rows = []
     lists_data = {}
     for blob in client.list_blobs(BUCKET_NAME):
-        # Skip "directory placeholders"
-        if blob.name.endswith("/"):
+        # Skip "directory placeholders + result folders"
+        if blob.name.endswith("/") or "sample_results" in blob.name:
             continue
         # list_name is the filename stem
         list_name = blob.name.strip().split("/")[-2]
@@ -805,8 +809,9 @@ else:
 st.markdown("---")
 st.subheader("Generate & Measure Experiment Results")
 
-
-with st.expander("Experiment Lists", expanded=True):
+with st.expander(
+    "Experiment Lists", expanded=st.session_state.get("show_analysis_expander", True)
+):
     try:
         past_df = load_past_lists_gcs(BUCKET_NAME + "/lists")
         if past_df.empty:
@@ -850,15 +855,15 @@ with st.expander("Experiment Lists", expanded=True):
                             key=f"analyze_{row['list_name']}",
                             type="primary",
                         ):
-                            st.success(
-                                f"Experimental results for **{row['list_name']}** will be analyzed here."
+                            st.session_state["analyze_results_list_name"] = row[
+                                "list_name"
+                            ]
+                            st.session_state["show_analysis_section"] = True
+                            st.info(
+                                "Scroll down to the bottom of the page to view the experimental results analysis for this list."
                             )
-                            st.text_area(
-                                "Results Output",
-                                value=f"Analysis for {row['list_name']} would appear here.",
-                                height=150,
-                                key=f"results_output_{row['list_name']}",
-                            )
+                            st.session_state["show_analysis_expander"] = False
+                            st.rerun()
                     else:
                         # If not, show "Generate sample results" button with optional inputs
                         with st.form(f"generate_results_form_{row['list_name']}"):
@@ -887,10 +892,14 @@ with st.expander("Experiment Lists", expanded=True):
                                 type="primary",
                             )
                         if submit_results:
-                            # Placeholder for run_results function
-                            st.info(
-                                f"Would run `run_results('{row['list_name']}', base_rate={base_rate}, lift={lift})`"
+                            results_generator = RCTResultGenerator(
+                                row["list_name"], base_rate / 100.0, get_gcs_client()
                             )
+                            results_generator.run(set_lift=lift / 100)
+                            st.success(
+                                f"Sample results for **{row['list_name']}** generated and uploaded to GCS. Reload list to see 'Analyze Experimental Results' button."
+                            )
+                            load_past_lists_gcs.clear()
 
             # Display pagination info at the bottom
             st.write(f"Page {current_results_page_num} of {total_pages}")
@@ -916,6 +925,22 @@ with st.expander("Experiment Lists", expanded=True):
     if st.button("Refresh Lists", key="analyze_section_lists_refresh"):
         load_past_lists_gcs.clear()
         st.rerun()
+
+# ========== Analysis Section ==========
+if st.session_state.get("show_analysis_section") and st.session_state.get(
+    "analyze_results_list_name"
+):
+    st.markdown("---")
+    st.subheader(
+        f"Experimental Results Analysis: {st.session_state['analyze_results_list_name']}"
+    )
+    try:
+        analysis_results = analyze_results(
+            get_gcs_client(), st.session_state["analyze_results_list_name"]
+        )
+        st.write(analysis_results)
+    except Exception as e:
+        st.error(f"Error analyzing experimental results: {e}")
 
 # =============== Footer ===============
 st.markdown("---")

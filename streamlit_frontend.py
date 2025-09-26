@@ -930,7 +930,7 @@ with st.expander(
 if st.session_state.get("show_analysis_section") and st.session_state.get(
     "analyze_results_list_name"
 ):
-    st.markdown("---")
+    # st.markdown("---")
     st.subheader(
         f"Experimental Results Analysis: {st.session_state['analyze_results_list_name']}"
     )
@@ -938,7 +938,15 @@ if st.session_state.get("show_analysis_section") and st.session_state.get(
         analysis_results = analyze_results(
             get_gcs_client(), st.session_state["analyze_results_list_name"]
         )
-        st.write(analysis_results)
+        lift = round(analysis_results.get("lift", None) * 100.0, 2)
+        lift_ci = [
+            round(float(x) * 100.0, 2) if x is not None else "None"
+            for x in analysis_results.get("ci95_lift", (None, None))
+        ]
+        st.write(
+            f"**Overall Results:**\n\nLift (with 95% CI): {lift}% {lift_ci}\n\np-value: {analysis_results['p_two_sided']}"
+        )
+        # TODO: Show plots with subgroup analyses
     except Exception as e:
         st.error(f"Error analyzing experimental results: {e}")
 

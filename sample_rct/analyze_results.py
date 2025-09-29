@@ -8,7 +8,7 @@ from io import StringIO
 logger = get_logger(__name__)
 
 
-def analyze_results(bucket_client, list_name_input, alpha=0.05):
+def analyze_results(bucket_client, list_name_input, alpha=0.05, subgroup_vars=None):
     experiment_dir = f"lists/{list_name_input}/sample_results"
     control_path = f"{experiment_dir}/generated_control.csv"
     treatment_path = f"{experiment_dir}/generated_treatment.csv"
@@ -47,10 +47,43 @@ def analyze_results(bucket_client, list_name_input, alpha=0.05):
             "p_two_sided": p_two_sided,
         }
 
-    x_t = treatment_df["behavior"].sum()
-    n_t = len(treatment_df)
-    x_c = control_df["behavior"].sum()
-    n_c = len(control_df)
+    if subgroup_vars:
+        results = {}
+        for var in subgroup_vars:
+            results[var] = {}
+            control_groups = control_df.groupby(var)
+            treatment_groups = treatment_df.groupby(var)
+            subgroups = set(control_df[var].unique()).union(
+                set(treatment_df[var].unique())
+            )
+            for subgroup in subgroups:
+                control_sub = (
+                    control_groups.get_group(subgroup)
+                    if subgroup in control_groups.groups
+                    else pd.DataFrame(columns=control_df.columns)
+                )
+                treatment_sub = (
+                    treatment_groups.get_group(subgroup)
+                    if subgroup in treatment_groups.groups
+                    else pd.DataFrame(columns=treatment_df.columns)
+                )
+                x_t = treatment_sub["behavior"].sum()
+                n_t = len(treatment_sub)
+                x_c = control_sub["behavior"].sum()
+                n_c = len(control_sub)
+                if n_t > 0 and n_c > 0:
+                    results[var][subgroup] = ab_test(
+                        x_t=x_t, n_t=n_t, x_c=x_c, n_c=n_c, alpha=alpha
+                    )
+                else:
+                    results[var][subgroup] = None
+        return results
+    else:
+        x_t = treatment_df["behavior"].sum()
+        n_t = len(treatment_df)
+        x_c = control_df["behavior"].sum()
+        n_c = len(control_df)
 
-    res = ab_test(x_t=x_t, n_t=n_t, x_c=x_c, n_c=n_c, alpha=alpha)
+        # TODO: Copy type from if subgroup_vars return statement, then adapt in the frontend
+        res = ab_test(x_t=x_t, n_t=n_t, x_c=x_c, n_c=n_c, alpha=alpha)
     return res
